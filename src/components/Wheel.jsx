@@ -9,10 +9,7 @@ const COLORS = [
   ['#8E2DE2', '#4A00E0'], ['#f80759', '#bc4e9c']
 ];
 
-/**
- * COMPONENTE ROLETA (WHEEL)
- * A matemática foi corrigida para alinhar o índice do prémio com o ponteiro no topo.
- */
+
 const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning }, ref) => {
   const canvasRef = useRef(null);
   const angleRef = useRef(0);
