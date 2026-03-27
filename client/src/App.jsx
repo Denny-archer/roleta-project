@@ -172,14 +172,41 @@ export default function App() {
             </div>
           )}
 
-          <div className={`result-box mt-4 mx-auto ${result ? 'active' : ''}`} style={{ maxWidth: '600px' }}>
-            <h2 className="mb-0 fw-black" style={{ color: result ? '#FFD200' : 'rgba(255,255,255,0.3)' }}>
-              {result ? <>
-                <i className="bi bi-trophy-fill me-2"></i>
-                {`PARABÉNS! GANHOU: ${result.toUpperCase()}`}
-              </> : 'Pronto para sortear...'}
-            </h2>
-          </div>
+          {/* CAIXA TEXTO PADRÃO QUANDO NÃO HÁ RESULTADO (Mantém o layout estável) */}
+          {!result && (
+            <div className="result-box mt-4 mx-auto" style={{ maxWidth: '600px' }}>
+              <h2 className="mb-0 fw-black" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                Pronto para sortear...
+              </h2>
+            </div>
+          )}
+
+          {/* 🌟 NOVO POPUP DE VITÓRIA (MODAL) 🌟 */}
+          {result && (
+            <div className="win-popup-overlay d-flex align-items-center justify-content-center">
+              <div className="win-popup-content text-center p-5 position-relative">
+                <div className="glow-effect"></div>
+                
+                <div className="win-icon-wrapper mb-3">
+                  <span className="win-icon">🎁</span>
+                </div>
+                
+                <h2 className="win-title mb-1">PARABÉNS!</h2>
+                <p className="win-subtitle mb-4 text-white-50">Voce ganhou:</p>
+                
+                <h1 className="win-prize-name display-4 fw-black mb-5 text-uppercase">
+                  {result}
+                </h1>
+                
+                <button 
+                  className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn"
+                  onClick={() => setResult(null)}
+                >
+                  🎉 CONTINUAR
+                </button>
+              </div>
+            </div>
+          )}
 
         </div>
       </main>
@@ -202,8 +229,21 @@ export default function App() {
         .pulse { animation: pulse-animation 2s infinite; }
         @keyframes pulse-animation { 0% { box-shadow: 0 0 0 0px rgba(25, 135, 84, 0.4); } 100% { box-shadow: 0 0 0 20px rgba(25, 135, 84, 0); } }
         .result-box { background: rgba(0,0,0,0.4); padding: 30px; border-radius: 20px; border: 2px dashed rgba(255,255,255,0.1); transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        .result-box.active { border: 2px solid #FFD200; background: rgba(255, 210, 0, 0.1); transform: scale(1.05); box-shadow: 0 0 40px rgba(255, 210, 0, 0.2); }
         .hover-glow:hover { box-shadow: 0 0 15px rgba(255,255,255,0.3) !important; transform: translateY(-1px); }
+        
+        /* ESTILOS DO POPUP DE VITÓRIA */
+        .win-popup-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 2000; animation: fadeInOverlay 0.3s ease-out forwards; }
+        .win-popup-content { background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(255, 210, 0, 0.3); border-radius: 30px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 90%; max-width: 500px; transform: scale(0.8); opacity: 0; animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s forwards; }
+        .glow-effect { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; background: radial-gradient(circle, rgba(255,210,0,0.15) 0%, rgba(0,0,0,0) 70%); z-index: 0; pointer-events: none; }
+        .win-icon { font-size: 4rem; position: relative; z-index: 1; animation: floatIcon 2s ease-in-out infinite; display: inline-block; }
+        .win-title { color: #FFD200; font-weight: 900; letter-spacing: 2px; position: relative; z-index: 1; }
+        .win-prize-name { color: white; text-shadow: 0 0 20px rgba(255,255,255,0.4); position: relative; z-index: 1; }
+        .win-btn { position: relative; z-index: 1; background: linear-gradient(to right, #F7971E, #FFD200); border: none; color: #000; text-transform: uppercase; letter-spacing: 1px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .win-btn:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 10px 25px rgba(255, 210, 0, 0.4) !important; }
+        
+        @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes floatIcon { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
       `}</style>
     </div>
   );
