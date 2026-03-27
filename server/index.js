@@ -1,101 +1,194 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
-import pg from 'pg'; // <-- Correção na importação do pg (ESM)
+import pg from 'pg';
 
 const { Pool } = pg;
 
-// 1. LIGAÇÃO À BASE DE DADOS (No topo, antes das rotas)
 const pool = new Pool({
-    user: 'postgres',
-    host: 'localhost',
-    database: 'roleta_brindes',
-    password: 'Buscador-21',
-    port: 5432
+    connectionString: process.env.DATABASE_URL,
 });
 
-pool.connect()
-    .then(() => console.log('🟢 Conectado ao PostgreSQL'))
-    .catch(err => console.error('🔴 Erro ao conectar:', err));
+// 👇 CORREÇÃO: Forçar o PostgreSQL a usar o Schema 'roleta' onde as tuas tabelas estão 👇
+pool.on('connect', client => {
+    client.query('SET search_path TO roleta, public');
+});
 
-// 2. CONFIGURAÇÃO DO EXPRESS
 const app = express();
-const PORT = 3000;
+const PORT = Number(process.env.PORT || 3000);
 
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL
+}));
 app.use(express.json());
 
 /**
  * ROTA DE TESTE (GET)
  */
 app.get('/', (req, res) => {
-    res.json({ 
-        status: 'Online', 
-        message: 'Backend da Roleta de Brindes está a funcionar!'
+    res.json({
+        status: 'Online',
+        message: 'Backend da Roleta de Brindes está a funcionar com gestão de stock!'
     });
 });
 
 /**
- * ROTA DE SORTEIO (POST) - AGORA COM GRAVAÇÃO NA BASE DE DADOS
+ * ROTA DE SAÚDE (HEALTH CHECK) - Colocada no topo para boas práticas Docker
  */
-app.post('/api/spin', async (req, res) => { // <-- Transformado em async
-    const { prizes } = req.body;
+app.get('/health', (req, res) => {
+    res.status(200).json({ status: 'ok' });
+});
 
-    if (!prizes || !Array.isArray(prizes) || prizes.length < 2) {
-        return res.status(400).json({ error: 'A lista de prémios é obrigatória.' });
+/**
+ * NOVA ROTA: SALVAR CONFIGURAÇÕES (POST)
+ */
+app.post('/api/prizes/save', async (req, res) => {
+    const { prizes } = req.body; // Array de { name, quantity }
+
+    if (!prizes || !Array.isArray(prizes)) {
+        return res.status(400).json({ error: 'Lista de prémios inválida.' });
     }
 
+    const client = await pool.connect();
     try {
-        // Lógica matemática
-        const winningIndex = Math.floor(Math.random() * prizes.length);
-        const prize = prizes[winningIndex];
-        const spinId = crypto.randomUUID();
+        await client.query('BEGIN'); // Inicia transação
 
-        // INSTRUÇÃO SQL (A peça que faltava para o Teste 2 passar!)
-        const query = `
-            INSERT INTO spin_history (spin_id, prize_name)
-            VALUES ($1, $2)
-            RETURNING *;
-        `;
-        
-        // Esperamos que a base de dados grave
-        const result = await pool.query(query, [spinId, prize]);
+        // Limpa as configurações antigas
+        await client.query('DELETE FROM prizes');
 
-        console.log(`[DB GRAVADO] ID: ${result.rows[0].id} | Prémio: ${prize}`);
+        // Insere as novas configurações
+        for (const p of prizes) {
+            await client.query(
+                'INSERT INTO prizes (name, quantity) VALUES ($1, $2)',
+                [p.name, p.quantity || 0]
+            );
+        }
 
-        // Devolvemos ao frontend
-        res.json({
-            winningIndex,
-            prize,
-            timestamp: result.rows[0].created_at,
-            spinId: spinId
-        });
-
+        await client.query('COMMIT'); // Confirma as mudanças
+        console.log('✅ Configurações de prémios atualizadas no banco.');
+        res.json({ message: 'Configurações salvas com sucesso!' });
     } catch (error) {
-        console.error('[ERRO SQL]:', error);
-        res.status(500).json({ error: 'Erro ao gravar na base de dados.' });
+        await client.query('ROLLBACK'); // Em caso de erro, desfaz as mudanças
+        console.error('[ERRO AO SALVAR]:', error);
+        res.status(500).json({ error: 'Erro ao salvar configurações.' });
+    } finally {
+        client.release();
     }
 });
 
 /**
- * ROTA DO HISTÓRICO (GET) - Para o painel de últimos vencedores
+ * NOVA ROTA: LIMPAR BANCO (DELETE)
+ */
+app.delete('/api/prizes/clear', async (req, res) => {
+    try {
+        await pool.query('DELETE FROM prizes');
+        await pool.query('DELETE FROM spin_history');
+        console.log('🗑️ Banco de dados completamente limpo.');
+        res.json({ message: 'Banco de dados limpo com sucesso!' });
+    } catch (error) {
+        console.error('[ERRO AO LIMPAR]:', error);
+        res.status(500).json({ error: 'Erro ao limpar banco.' });
+    }
+});
+
+/**
+ * ROTA DE SORTEIO (POST) - ATUALIZADA PARA GERIR STOCK E SORTEIO PONDERADO
+ */
+app.post('/api/spin', async (req, res) => {
+    try {
+        // 1. Busca os prémios que ainda têm stock disponível, trazendo também a quantidade
+        const { rows: availablePrizes } = await pool.query(
+            'SELECT name, quantity FROM prizes WHERE quantity > 0'
+        );
+
+        if (availablePrizes.length === 0) {
+            return res.status(400).json({ error: 'Todos os brindes estão esgotados ou não configurados!' });
+        }
+
+        // 2. Lógica matemática de Sorteio Ponderado (Weighted Random)
+        let totalStock = 0;
+        for (const prize of availablePrizes) {
+            totalStock += prize.quantity;
+        }
+
+        let randomValue = Math.floor(Math.random() * totalStock);
+        let prizeName = '';
+
+        // Encontra em qual "fatia" caiu
+        for (const prize of availablePrizes) {
+            randomValue -= prize.quantity;
+            if (randomValue < 0) {
+                prizeName = prize.name;
+                break;
+            }
+        }
+
+        // Validação
+        if (!prizeName) {
+            throw new Error('Erro ao selecionar premio sorteado.');
+        }
+
+        const spinId = crypto.randomUUID();
+
+        // 3. Transação: Atualiza stock e grava histórico
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Subtrai 1 do stock
+            await client.query('UPDATE prizes SET quantity = quantity - 1 WHERE name = $1', [prizeName]);
+
+            // Grava histórico (SEM o spin_id)
+            const historyResult = await client.query(
+                'INSERT INTO spin_history (prize_name) VALUES ($1) RETURNING *',
+                [prizeName]
+            );
+
+
+            await client.query('COMMIT');
+
+            console.log(`[SORTEIO E STOCK] Sorteado: ${prizeName} | Stock reduzido em 1.`);
+
+            // 4. Devolve ao frontend o nome sorteado
+            res.json({
+                prize: prizeName,
+                timestamp: historyResult.rows[0].created_at,
+                spinId: spinId
+            });
+
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+
+    } catch (error) {
+        console.error('[ERRO SQL NO SORTEIO]:', error);
+        res.status(500).json({ error: 'Erro ao processar o sorteio na base de dados.' });
+    }
+});
+
+/**
+ * ROTA DO HISTÓRICO (GET)
  */
 app.get('/api/history', async (req, res) => {
     try {
         const result = await pool.query('SELECT * FROM spin_history ORDER BY created_at DESC LIMIT 10');
         res.json(result.rows);
     } catch (error) {
-        console.error(error);
+        console.error('[ERROR]', error.message);
         res.status(500).json({ error: 'Erro ao buscar histórico.' });
     }
 });
 
-// Tratamento de 404
+// Tratamento de rotas não encontradas
 app.use((req, res) => {
-    res.status(404).json({ error: 'Rota não encontrada.' });
+    res.status(404).json({ error: 'Rota não encontrada neste servidor API.' });
 });
 
 // 3. INICIAR O SERVIDOR
 app.listen(PORT, () => {
-    console.log(`🚀 SERVIDOR ATIVO em http://localhost:${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
