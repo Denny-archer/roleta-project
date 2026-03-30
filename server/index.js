@@ -93,80 +93,94 @@ app.delete('/api/prizes/clear', async (req, res) => {
 });
 
 /**
- * ROTA DE SORTEIO (POST) - ATUALIZADA PARA GERIR STOCK E SORTEIO PONDERADO
+ * ROTA DE SORTEIO (POST) - PREPARADA PARA ALTA CONCORRÊNCIA (RACE CONDITIONS)
  */
 app.post('/api/spin', async (req, res) => {
+    const client = await pool.connect();
+
     try {
-        // 1. Busca os prémios que ainda têm stock disponível, trazendo também a quantidade
-        const { rows: availablePrizes } = await pool.query(
-            'SELECT name, quantity FROM prizes WHERE quantity > 0'
-        );
+        let spinSuccess = false;
+        let finalPrize = '';
+        let attempts = 0;
+        const MAX_ATTEMPTS = 5; // Tenta recalcular até 5 vezes se houver colisão de stock
 
-        if (availablePrizes.length === 0) {
-            return res.status(400).json({ error: 'Todos os brindes estão esgotados ou não configurados!' });
-        }
+        // Loop de tentativa (caso 2 pessoas ganhem o mesmo último item ao mesmo tempo)
+        while (!spinSuccess && attempts < MAX_ATTEMPTS) {
+            attempts++;
 
-        // 2. Lógica matemática de Sorteio Ponderado (Weighted Random)
-        let totalStock = 0;
-        for (const prize of availablePrizes) {
-            totalStock += prize.quantity;
-        }
+            // 1. Busca os prémios disponíveis
+            const { rows: availablePrizes } = await client.query(
+                'SELECT name, quantity FROM prizes WHERE quantity > 0'
+            );
 
-        let randomValue = Math.floor(Math.random() * totalStock);
-        let prizeName = '';
-
-        // Encontra em qual "fatia" caiu
-        for (const prize of availablePrizes) {
-            randomValue -= prize.quantity;
-            if (randomValue < 0) {
-                prizeName = prize.name;
-                break;
+            if (availablePrizes.length === 0) {
+                return res.status(400).json({ error: 'Todos os brindes estão esgotados!' });
             }
-        }
 
-        // Validação
-        if (!prizeName) {
-            throw new Error('Erro ao selecionar premio sorteado.');
-        }
+            // 2. Lógica matemática de Sorteio Ponderado
+            let totalStock = 0;
+            for (const prize of availablePrizes) {
+                totalStock += prize.quantity;
+            }
 
-        const spinId = crypto.randomUUID();
+            let randomValue = Math.floor(Math.random() * totalStock);
+            let prizeName = '';
 
-        // 3. Transação: Atualiza stock e grava histórico
-        const client = await pool.connect();
-        try {
+            for (const prize of availablePrizes) {
+                randomValue -= prize.quantity;
+                if (randomValue < 0) {
+                    prizeName = prize.name;
+                    break;
+                }
+            }
+
+            // 3. TRANSACÇÃO ATÓMICA (O segredo para acessos simultâneos)
             await client.query('BEGIN');
 
-            // Subtrai 1 do stock
-            await client.query('UPDATE prizes SET quantity = quantity - 1 WHERE name = $1', [prizeName]);
-
-            // Grava histórico (SEM o spin_id)
-            const historyResult = await client.query(
-                'INSERT INTO spin_history (prize_name) VALUES ($1) RETURNING *',
+            // Tenta subtrair 1 APENAS se ainda houver stock no momento exato do UPDATE
+            const updateResult = await client.query(
+                'UPDATE prizes SET quantity = quantity - 1 WHERE name = $1 AND quantity > 0 RETURNING *',
                 [prizeName]
             );
 
+            // Se rowCount > 0, significa que ganhámos a "corrida" e o item é nosso
+            if (updateResult.rowCount > 0) {
+                // Grava o histórico
+                const historyResult = await client.query(
+                    'INSERT INTO spin_history (prize_name) VALUES ($1) RETURNING *',
+                    [prizeName]
+                );
 
-            await client.query('COMMIT');
+                await client.query('COMMIT'); // Confirma as alterações no banco
 
-            console.log(`[SORTEIO E STOCK] Sorteado: ${prizeName} | Stock reduzido em 1.`);
+                spinSuccess = true;
+                finalPrize = prizeName;
 
-            // 4. Devolve ao frontend o nome sorteado
-            res.json({
-                prize: prizeName,
-                timestamp: historyResult.rows[0].created_at,
-                spinId: spinId
-            });
+                console.log(`[SUCESSO] Sorteado: ${prizeName} | Tentativa: ${attempts}`);
 
-        } catch (err) {
-            await client.query('ROLLBACK');
-            throw err;
-        } finally {
-            client.release();
+                return res.json({
+                    prize: finalPrize,
+                    timestamp: historyResult.rows[0].created_at
+                });
+            } else {
+                // Se rowCount === 0, alguém levou o prémio no milissegundo anterior!
+                // Desfazemos a transação e o loop "while" vai rodar de novo para sortear outro item.
+                await client.query('ROLLBACK');
+                console.log(`[COLISÃO] Prémio ${prizeName} esgotou no momento da gravação. Recalculando...`);
+            }
+        }
+
+        // Se sair do loop e não teve sucesso (muito raro, só se a base de dados estiver sobrecarregada)
+        if (!spinSuccess) {
+            res.status(500).json({ error: 'Muitos acessos simultâneos, por favor tente girar novamente.' });
         }
 
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error('[ERRO SQL NO SORTEIO]:', error);
-        res.status(500).json({ error: 'Erro ao processar o sorteio na base de dados.' });
+        res.status(500).json({ error: 'Erro ao processar o sorteio.' });
+    } finally {
+        client.release(); // Liberta a conexão para não travar o banco
     }
 });
 
