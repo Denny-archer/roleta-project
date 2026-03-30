@@ -37,14 +37,14 @@ export default function App() {
       setIsSidebarOpen(false);
     } catch (e) {
       console.error(e);
-      alert("Erro ao conectar com o banco. O backend está Rodando?");
+      alert("Erro ao conectar com o banco. O backend está a correr?");
     } finally {
       setLoading(false);
     }
   };
 
   const handleClearDB = async () => {
-    if (!window.confirm("Aviso: Isso vai apagar TODOS os brindes e o histórico de sorteios do banco de dados. Confirmar?")) return;
+    if (!window.confirm("Aviso: Isto vai apagar TODOS os brindes e o histórico de sorteios do banco de dados. Confirmar?")) return;
 
     setLoading(true);
     try {
@@ -63,7 +63,7 @@ export default function App() {
     if (spinning || loading) return;
 
     if (availablePrizes.length < 2) {
-      alert("Você precisa de pelo menos 2 brindes com Estoque no inventário para girar!");
+      alert("Precisas de pelo menos 2 brindes com stock no inventário para girar!");
       return setIsSidebarOpen(true);
     }
 
