@@ -44,7 +44,7 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
 
           <div className="flex-grow-1 overflow-auto pe-2 custom-scrollbar mb-4">
             <p className="text-white-50 small mb-3 text-uppercase tracking-widest">
-              Inventário de Brindes
+              Itens da Roleta
             </p>
 
             {prizes.map((p, i) => (
@@ -58,7 +58,7 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
                 </button>
 
                 <div className="mb-2 pe-4">
-                  <label className="small text-white-50 mb-1 d-block" style={{ fontSize: '0.75rem' }}>Nome do Item</label>
+                  <label className="small text-white-50 mb-1 d-block" style={{ fontSize: '0.75rem' }}>Nome do Prêmio</label>
                   <input
                     className="form-control form-control-sm bg-dark text-white border-secondary"
                     value={p.name}
@@ -68,7 +68,7 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
                 </div>
 
                 <div>
-                  <label className="small text-white-50 mb-1 d-block" style={{ fontSize: '0.75rem' }}>Quantidade no Banco</label>
+                  <label className="small text-white-50 mb-1 d-block" style={{ fontSize: '0.75rem' }}>Quantidade no Estoque</label>
                   <div className="input-group input-group-sm w-50">
                     <button
                       className="btn btn-outline-secondary"
@@ -95,7 +95,7 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
             >
               <>
                 <i className="bi bi-plus-circle me-2"></i>
-                Adicionar Novo Brinde
+                Adicionar novo item
               </>
             </button>
           </div>
@@ -107,9 +107,9 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
                 onClick={onSave}
                 disabled={isLoading}
               >
-                {isLoading ? 'A GUARDAR...' : <>
+                {isLoading ? 'Salvando...' : <>
                   <i className="bi bi-save2-fill me-2"></i>
-                  GUARDAR E ENVIAR AO BANCO
+                  Salvar alterações
                 </>}
               </button>
               <button
@@ -119,7 +119,7 @@ function Sidebar({ isOpen, onClose, prizes, setPrizes, onSave, onClear, isLoadin
               >
                 <>
                   <i className="bi bi-trash-fill me-2"></i>
-                  Limpar Banco de Dados
+                  Resetar dados
                 </>
               </button>
             </div>
