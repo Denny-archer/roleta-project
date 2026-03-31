@@ -16,6 +16,7 @@ export default function App() {
     { name: 'Boné', quantity: 0 }
   ]);
 
+  const [adminAuth, setAdminAuth] = useState('');
   const [result, setResult] = useState(null);
   const [spinning, setSpinning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -24,14 +25,24 @@ export default function App() {
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
 
+  const handleOpenSettings = () => {
+    const pass = window.prompt("Insira a senha de administrador para acessar as configurações:");
+    if (pass) {
+      setAdminAuth(pass);
+      setIsSidebarOpen(true);
+    }
+  };
+
+
   const handleSaveToDB = async () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/prizes/save`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminAuth },
         body: JSON.stringify({ prizes })
       });
+      if (response.status === 401) throw new Error('Senha de administrador incorreta');
       if (!response.ok) throw new Error('Falha ao salvar');
       alert("Sucesso! Banco de dados atualizado.");
       setIsSidebarOpen(false);
@@ -48,7 +59,11 @@ export default function App() {
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/prizes/clear`, { method: 'DELETE' });
+      const response = await fetch(`${API_URL}/api/prizes/clear`, {
+        method: 'DELETE',
+        headers: { 'X-Admin-Password': adminAuth }
+      });
+      if (response.status === 401) throw new Error('Senha de administrador incorreta');
       if (!response.ok) throw new Error('Falha ao limpar');
       setPrizes([{ name: 'Prémio 1', quantity: 0 }, { name: 'Prémio 2', quantity: 0 }]);
       alert("Banco de dados limpo com sucesso!");
@@ -121,7 +136,7 @@ export default function App() {
 
         <button
           className="btn btn-outline-light px-4 fw-bold rounded-pill shadow-sm hover-glow"
-          onClick={() => setIsSidebarOpen(true)}
+          onClick={handleOpenSettings}
         >
           <i className="bi bi-gear-fill"></i>
         </button>
@@ -186,19 +201,19 @@ export default function App() {
             <div className="win-popup-overlay d-flex align-items-center justify-content-center">
               <div className="win-popup-content text-center p-5 position-relative">
                 <div className="glow-effect"></div>
-                
+
                 <div className="win-icon-wrapper mb-3">
                   <span className="win-icon">🎁</span>
                 </div>
-                
+
                 <h2 className="win-title mb-1">PARABÉNS!</h2>
                 <p className="win-subtitle mb-4 text-white-50">Acabaste de ganhar o prémio:</p>
-                
+
                 <h1 className="win-prize-name display-4 fw-black mb-5 text-uppercase">
                   {result}
                 </h1>
-                
-                <button 
+
+                <button
                   className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn"
                   onClick={() => setResult(null)}
                 >
