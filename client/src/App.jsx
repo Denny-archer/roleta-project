@@ -25,11 +25,29 @@ export default function App() {
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
 
-  const handleOpenSettings = () => {
-    const pass = window.prompt("Insira a senha de administrador para acessar as configurações:");
-    if (pass) {
-      setAdminAuth(pass);
-      setIsSidebarOpen(true);
+  const handleOpenSettings = async () => {
+    const pass = window.prompt("🔒 Acesso Restrito: Digite a senha de administrador");
+
+    // Se o utilizador clicou em "Cancelar" ou deixou em branco, não faz nada
+    if (!pass) return;
+
+    try {
+      // Vai ao servidor perguntar se a senha bate certo
+      const response = await fetch(`${API_URL}/api/auth`, {
+        method: 'POST',
+        headers: { 'x-admin-password': pass }
+      });
+
+      if (response.ok) {
+        // Backend disse OK (200)!
+        setAdminAuth(pass); // Guarda a senha para as futuras edições
+        setIsSidebarOpen(true); // Só agora abre o menu
+      } else {
+        // Backend disse Acesso Negado (401)!
+        alert("❌ Senha incorreta! Acesso negado.");
+      }
+    } catch (e) {
+      alert("Erro ao verificar a senha com o servidor.");
     }
   };
 
