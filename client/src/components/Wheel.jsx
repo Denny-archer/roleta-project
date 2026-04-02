@@ -10,7 +10,8 @@ const COLORS = [
   ['#64748b', '#475569']  // Light Slate (Azul-acinzentado suave)
 ];
 
-const Wheel = forwardRef(({ prizes, onSpinFinish, setSpinning }, ref) => {
+// 👇 Adicionámos as props 'spinning' e 'onSpinClick'
+const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinClick }, ref) => {
   const canvasRef = useRef(null);
   const angleRef = useRef(0);
 
@@ -42,7 +43,6 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, setSpinning }, ref) => {
       ctx.fillStyle = grad; 
       ctx.fill();
       
-      // Linhas divisórias mais suaves (cinza muito claro com pouca opacidade)
       ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
       ctx.lineWidth = 1.5; 
       ctx.stroke();
@@ -51,9 +51,8 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, setSpinning }, ref) => {
       ctx.translate(center, center);
       ctx.rotate(startAngle + arc / 2);
       ctx.textAlign = 'right'; 
-      ctx.fillStyle = '#f8fafc'; // Branco ligeiramente "sujo" (slate-50) para ser menos agressivo aos olhos
+      ctx.fillStyle = '#f8fafc'; 
       
-      // Sombra do texto suavizada para um look mais limpo
       ctx.font = '600 16px sans-serif'; 
       ctx.shadowBlur = 4; 
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
@@ -65,7 +64,7 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, setSpinning }, ref) => {
     // Círculo central modernizado
     ctx.beginPath(); 
     ctx.arc(center, center, 35, 0, Math.PI * 2);
-    ctx.fillStyle = '#1e293b'; // Centro escuro em vez de branco
+    ctx.fillStyle = '#1e293b'; 
     ctx.fill();
     ctx.shadowBlur = 10; 
     ctx.shadowColor = 'rgba(0,0,0,0.3)';
@@ -111,28 +110,77 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, setSpinning }, ref) => {
     }
   }));
 
-  // Removi o 'draw' das dependências para evitar avisos no React, 
-  // já que a função é redefinida a cada renderização
   useEffect(() => { draw(angleRef.current); }, [prizes]);
+
+  // 👇 NOVA LÓGICA DE CLIQUE E MOUSE 👇
+  const getMousePos = (e) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY
+    };
+  };
+
+  const handleMouseMove = (e) => {
+    if (spinning) return; // Desativa o hover se já estiver a girar
+    const pos = getMousePos(e);
+    const center = canvasRef.current.width / 2;
+    // Teorema de Pitágoras para calcular distância ao centro
+    const distance = Math.sqrt(Math.pow(pos.x - center, 2) + Math.pow(pos.y - center, 2));
+
+    // O raio do nosso botão GO é 35
+    if (distance <= 35) {
+      canvasRef.current.style.cursor = 'pointer';
+    } else {
+      canvasRef.current.style.cursor = 'default';
+    }
+  };
+
+  const handleClick = (e) => {
+    if (spinning) return;
+    const pos = getMousePos(e);
+    const center = canvasRef.current.width / 2;
+    const distance = Math.sqrt(Math.pow(pos.x - center, 2) + Math.pow(pos.y - center, 2));
+
+    // Se clicou dentro do raio de 35 e temos a função onSpinClick, dispara!
+    if (distance <= 35 && onSpinClick) {
+      onSpinClick();
+    }
+  };
 
   return (
     <div className="position-relative d-inline-block mt-4">
       <div className="wheel-pointer" />
-      <canvas ref={canvasRef} width={480} height={480} className="wheel-canvas" />
+      {/* 👇 Adicionámos onClick e onMouseMove ao canvas 👇 */}
+      <canvas 
+        ref={canvasRef} 
+        width={480} 
+        height={480} 
+        className="wheel-canvas" 
+        onClick={handleClick}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => { if(canvasRef.current) canvasRef.current.style.cursor = 'default'; }}
+      />
       <style>{`
         .wheel-pointer {
           position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
           width: 0; height: 0; 
           border-left: 18px solid transparent; 
           border-right: 18px solid transparent; 
-          border-top: 30px solid #cbd5e1; /* Ponteiro cinza claro neutro */
+          border-top: 30px solid #cbd5e1;
           filter: drop-shadow(0 4px 6px rgba(0,0,0,0.4)); 
           z-index: 10;
         }
         .wheel-canvas { 
           border-radius: 50%; 
-          box-shadow: 0 0 40px rgba(0,0,0,0.4); /* Sombra exterior mais suave */
+          box-shadow: 0 0 40px rgba(0,0,0,0.4);
           max-width: 100%; height: auto; 
+          /* Removemos a seleção de texto acidental ao clicar rápido */
+          user-select: none; 
+          -webkit-tap-highlight-color: transparent;
         }
       `}</style>
     </div>

@@ -177,6 +177,7 @@ export default function App() {
                 spinning={spinning}
                 setSpinning={setSpinning}
                 onSpinFinish={setResult}
+                onSpinClick={handleSpin}
               />
 
               <div className="mt-5 mb-2 w-100 z-3 position-relative">
