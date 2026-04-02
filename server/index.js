@@ -10,7 +10,7 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
 });
 
-// 👇 CORREÇÃO: Forçar o PostgreSQL a usar o Schema 'roleta' onde as tuas tabelas estão 👇
+// Forçar o PostgreSQL a usar o Schema 'roleta'
 pool.on('connect', client => {
     client.query('SET search_path TO roleta, public');
 });
@@ -23,9 +23,8 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// NOVO: MIDDLEWARE DE SEGURANÇA
-const requiredAdmin = (req, res, next) => {
-    // pegar a senha do frontend (pode ser um header, ou parte do body)
+// 👇 MIDDLEWARE DE SEGURANÇA (O "Segurança da Porta") 👇
+const requireAdmin = (req, res, next) => {
     const clientPassword = req.headers['x-admin-password'];
     const serverPassword = process.env.ADMIN_PASSWORD;
 
@@ -34,9 +33,9 @@ const requiredAdmin = (req, res, next) => {
     }
 
     if (clientPassword && clientPassword === serverPassword) {
-        next(); // Senha correta, continua para a rota
+        next(); // Senha correta!
     } else {
-        res.status(401).json({ error: 'Acesso negado. Senha de administrador é necessária.' });
+        res.status(401).json({ error: 'Acesso negado: Senha incorreta ou ausente.' });
     }
 };
 
@@ -46,22 +45,26 @@ const requiredAdmin = (req, res, next) => {
 app.get('/', (req, res) => {
     res.json({
         status: 'Online',
-        message: 'Backend da Roleta de Brindes está a funcionar com gestão de stock!'
+        message: 'Backend da Roleta de Brindes está a funcionar!'
     });
 });
 
-/**
- * ROTA DE SAÚDE (HEALTH CHECK) - Colocada no topo para boas práticas Docker
- */
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
 /**
- * NOVA ROTA: SALVAR CONFIGURAÇÕES (POST)
+ * NOVA ROTA: AUTENTICAÇÃO (POST)
  */
-app.post('/api/prizes/save', requiredAdmin, async (req, res) => {
-    const { prizes } = req.body; // Array de { name, quantity }
+app.post('/api/auth', requireAdmin, (req, res) => {
+    res.status(200).json({ message: 'Autenticado com sucesso' });
+});
+
+/**
+ * ROTA: SALVAR CONFIGURAÇÕES (POST) - PROTEGIDA
+ */
+app.post('/api/prizes/save', requireAdmin, async (req, res) => {
+    const { prizes } = req.body;
 
     if (!prizes || !Array.isArray(prizes)) {
         return res.status(400).json({ error: 'Lista de prémios inválida.' });
@@ -69,12 +72,9 @@ app.post('/api/prizes/save', requiredAdmin, async (req, res) => {
 
     const client = await pool.connect();
     try {
-        await client.query('BEGIN'); // Inicia transação
-
-        // Limpa as configurações antigas
+        await client.query('BEGIN');
         await client.query('DELETE FROM prizes');
 
-        // Insere as novas configurações
         for (const p of prizes) {
             await client.query(
                 'INSERT INTO prizes (name, quantity) VALUES ($1, $2)',
@@ -82,11 +82,11 @@ app.post('/api/prizes/save', requiredAdmin, async (req, res) => {
             );
         }
 
-        await client.query('COMMIT'); // Confirma as mudanças
-        console.log('✅ Configurações de prémios atualizadas no banco.');
+        await client.query('COMMIT');
+        console.log('✅ Configurações salvas.');
         res.json({ message: 'Configurações salvas com sucesso!' });
     } catch (error) {
-        await client.query('ROLLBACK'); // Em caso de erro, desfaz as mudanças
+        await client.query('ROLLBACK');
         console.error('[ERRO AO SALVAR]:', error);
         res.status(500).json({ error: 'Erro ao salvar configurações.' });
     } finally {
@@ -95,13 +95,13 @@ app.post('/api/prizes/save', requiredAdmin, async (req, res) => {
 });
 
 /**
- * NOVA ROTA: LIMPAR BANCO (DELETE)
+ * ROTA: LIMPAR BANCO (DELETE) - PROTEGIDA
  */
-app.delete('/api/prizes/clear', requiredAdmin, async (req, res) => {
+app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
     try {
         await pool.query('DELETE FROM prizes');
         await pool.query('DELETE FROM spin_history');
-        console.log('🗑️ Banco de dados completamente limpo.');
+        console.log('🗑️ Banco limpo.');
         res.json({ message: 'Banco de dados limpo com sucesso!' });
     } catch (error) {
         console.error('[ERRO AO LIMPAR]:', error);
@@ -110,32 +110,20 @@ app.delete('/api/prizes/clear', requiredAdmin, async (req, res) => {
 });
 
 /**
- * ROTA DE AUTENTICAÇÃO (POST)
- * Serve apenas para o frontend perguntar se a senha está correta antes de abrir o Sidebar
- */
-app.post('/api/auth', requireAdmin, (req, res) => {
-    // Se o middleware "requireAdmin" deixou passar, é porque a senha está certa!
-    res.status(200).json({ message: 'Autenticado com sucesso' });
-});
-
-
-/**
- * ROTA DE SORTEIO (POST) - PREPARADA PARA ALTA CONCORRÊNCIA (RACE CONDITIONS)
+ * ROTA DE SORTEIO (POST) - ATUALIZADA PARA CONCORRÊNCIA E SEM SENHA
  */
 app.post('/api/spin', async (req, res) => {
     const client = await pool.connect();
-
+    
     try {
         let spinSuccess = false;
         let finalPrize = '';
         let attempts = 0;
-        const MAX_ATTEMPTS = 5; // Tenta recalcular até 5 vezes se houver colisão de stock
+        const MAX_ATTEMPTS = 5;
 
-        // Loop de tentativa (caso 2 pessoas ganhem o mesmo último item ao mesmo tempo)
         while (!spinSuccess && attempts < MAX_ATTEMPTS) {
             attempts++;
-
-            // 1. Busca os prémios disponíveis
+            
             const { rows: availablePrizes } = await client.query(
                 'SELECT name, quantity FROM prizes WHERE quantity > 0'
             );
@@ -144,7 +132,6 @@ app.post('/api/spin', async (req, res) => {
                 return res.status(400).json({ error: 'Todos os brindes estão esgotados!' });
             }
 
-            // 2. Lógica matemática de Sorteio Ponderado
             let totalStock = 0;
             for (const prize of availablePrizes) {
                 totalStock += prize.quantity;
@@ -161,45 +148,37 @@ app.post('/api/spin', async (req, res) => {
                 }
             }
 
-            // 3. TRANSACÇÃO ATÓMICA (O segredo para acessos simultâneos)
             await client.query('BEGIN');
 
-            // Tenta subtrair 1 APENAS se ainda houver stock no momento exato do UPDATE
             const updateResult = await client.query(
                 'UPDATE prizes SET quantity = quantity - 1 WHERE name = $1 AND quantity > 0 RETURNING *',
                 [prizeName]
             );
 
-            // Se rowCount > 0, significa que ganhámos a "corrida" e o item é nosso
             if (updateResult.rowCount > 0) {
-                // Grava o histórico
                 const historyResult = await client.query(
                     'INSERT INTO spin_history (prize_name) VALUES ($1) RETURNING *',
                     [prizeName]
                 );
 
-                await client.query('COMMIT'); // Confirma as alterações no banco
-
+                await client.query('COMMIT');
+                
                 spinSuccess = true;
                 finalPrize = prizeName;
-
-                console.log(`[SUCESSO] Sorteado: ${prizeName} | Tentativa: ${attempts}`);
-
+                
+                console.log(`[SUCESSO] Sorteado: ${prizeName}`);
+                
                 return res.json({
                     prize: finalPrize,
                     timestamp: historyResult.rows[0].created_at
                 });
             } else {
-                // Se rowCount === 0, alguém levou o prémio no milissegundo anterior!
-                // Desfazemos a transação e o loop "while" vai rodar de novo para sortear outro item.
                 await client.query('ROLLBACK');
-                console.log(`[COLISÃO] Prémio ${prizeName} esgotou no momento da gravação. Recalculando...`);
             }
         }
 
-        // Se sair do loop e não teve sucesso (muito raro, só se a base de dados estiver sobrecarregada)
         if (!spinSuccess) {
-            res.status(500).json({ error: 'Muitos acessos simultâneos, por favor tente girar novamente.' });
+            res.status(500).json({ error: 'Muitos acessos simultâneos, por favor tente novamente.' });
         }
 
     } catch (error) {
@@ -207,7 +186,7 @@ app.post('/api/spin', async (req, res) => {
         console.error('[ERRO SQL NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar o sorteio.' });
     } finally {
-        client.release(); // Liberta a conexão para não travar o banco
+        client.release();
     }
 });
 
@@ -224,12 +203,10 @@ app.get('/api/history', async (req, res) => {
     }
 });
 
-// Tratamento de rotas não encontradas
 app.use((req, res) => {
-    res.status(404).json({ error: 'Rota não encontrada neste servidor API.' });
+    res.status(404).json({ error: 'Rota não encontrada.' });
 });
 
-// 3. INICIAR O SERVIDOR
 app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
 });
