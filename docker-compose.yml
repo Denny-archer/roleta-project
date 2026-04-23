@@ -19,7 +19,7 @@ services:
       context: ./client
       dockerfile: Dockerfile
       args:
-        - VITE_API_URL=http://localhost:3010
+        - VITE_API_URL=https://gsb.ti.coffito.gov.br
     container_name: roleta-frontend
     restart: always
     ports:
