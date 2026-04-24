@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Wheel from './components/Wheel';
 import Sidebar from './components/Sidebar';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -9,12 +9,29 @@ export default function App() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
 
   const [prizes, setPrizes] = useState([
-    { name: 'Camiseta', quantity: 5 },
-    { name: 'Caneca', quantity: 10 },
-    { name: 'Mouse', quantity: 2 },
-    { name: 'Teclado', quantity: 1 },
-    { name: 'Boné', quantity: 0 }
+    { name: 'A carregar...', quantity: 0 } // Estado temporário até o useEffect buscar do banco
   ]);
+
+  // 👇 NOVO: CARREGAR DADOS DO BANCO AO INICIAR 👇
+  useEffect(() => {
+    const fetchInitialPrizes = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/prizes`);
+        if (response.ok) {
+          const dbPrizes = await response.json();
+          // Só substitui se houver algo configurado no banco
+          if (dbPrizes && dbPrizes.length > 0) {
+            setPrizes(dbPrizes);
+          }
+        }
+      } catch (error) {
+        console.error("Erro ao carregar prémios do servidor:", error);
+      }
+    };
+
+    fetchInitialPrizes();
+  }, [API_URL]); // O array vazio [] ou [API_URL] garante que roda apenas 1x ao abrir o site
+  // 👆 ---------------------------------------- 👆
 
   const [adminAuth, setAdminAuth] = useState('');
   const [result, setResult] = useState(null);

@@ -18,9 +18,20 @@ pool.on('connect', client => {
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
+// 👇 NOVA CONFIGURAÇÃO CORS BLINDADA 👇
 app.use(cors({
-    origin: process.env.FRONTEND_URL
+    // Permite explicitamente o domínio do frontend
+    origin: [process.env.FRONTEND_URL, 'http://172.16.10.28:8081', 'https://roleta.coffito.gov.br'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password'],
+    credentials: true,
+    optionsSuccessStatus: 200 // Alguns navegadores antigos engasgam no 204
 }));
+
+// Força a resposta ao pedido fantasma (Preflight OPTIONS) manualmente
+app.options('*', cors()); 
+// 👆 -------------------------------- 👆
+
 app.use(express.json());
 
 // 👇 MIDDLEWARE DE SEGURANÇA (O "Segurança da Porta") 👇
@@ -200,6 +211,20 @@ app.get('/api/history', async (req, res) => {
     } catch (error) {
         console.error('[ERROR]', error.message);
         res.status(500).json({ error: 'Erro ao buscar histórico.' });
+    }
+});
+
+/**
+ * ROTA: BUSCAR CONFIGURAÇÕES ATUAIS (GET) - PÚBLICA
+ * Usada pelo frontend para carregar a roleta quando o site é aberto
+ */
+app.get('/api/prizes', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT name, quantity FROM prizes ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('[ERRO AO BUSCAR PRÉMIOS]:', error);
+        res.status(500).json({ error: 'Erro ao buscar prémios da base de dados.' });
     }
 });
 
