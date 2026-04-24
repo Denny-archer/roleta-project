@@ -214,6 +214,20 @@ app.get('/api/history', async (req, res) => {
     }
 });
 
+/**
+ * ROTA: BUSCAR CONFIGURAÇÕES ATUAIS (GET) - PÚBLICA
+ * Usada pelo frontend para carregar a roleta quando o site é aberto
+ */
+app.get('/api/prizes', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT name, quantity FROM prizes ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (error) {
+        console.error('[ERRO AO BUSCAR PRÉMIOS]:', error);
+        res.status(500).json({ error: 'Erro ao buscar prémios da base de dados.' });
+    }
+});
+
 app.use((req, res) => {
     res.status(404).json({ error: 'Rota não encontrada.' });
 });
