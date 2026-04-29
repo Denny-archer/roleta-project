@@ -13,6 +13,7 @@ dist-ssr
 *.local
 .env
 jest.config.js
+docker-compose.override.yml
 
 # Editor directories and files
 .vscode/*
