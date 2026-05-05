@@ -7,9 +7,11 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 export default function App() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
 
-  // Captura qual é o evento pela URL (ex: ?evento=brasilia)
+  // Captura o evento E o email pela URL (ex: ?evento=brasilia&email=user@coffito.gov.br)
   const queryParams = new URLSearchParams(window.location.search);
   const currentEvent = queryParams.get('evento') || 'geral';
+  const emailFromUrl = queryParams.get('email') || '';
+  const emailBloqueado = !!emailFromUrl; // true se veio da URL (Forms)
 
   const [prizes, setPrizes] = useState([
     { name: 'A carregar...', quantity: 0 }
@@ -18,7 +20,6 @@ export default function App() {
   useEffect(() => {
     const fetchInitialPrizes = async () => {
       try {
-        // Pede os prémios ESPECÍFICOS deste evento
         const response = await fetch(`${API_URL}/api/prizes?evento=${currentEvent}`);
         if (response.ok) {
           const dbPrizes = await response.json();
@@ -39,7 +40,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const wheelRef = useRef(null);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(emailFromUrl); // ← pré-preenchido se vier da URL
   const [hasGiro, setHasGiro] = useState(false);
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
@@ -71,7 +72,7 @@ export default function App() {
       const response = await fetch(`${API_URL}/api/prizes/save`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Admin-Password': adminAuth },
-        body: JSON.stringify({ prizes, evento: currentEvent }) // Avisa o backend de qual evento salvar
+        body: JSON.stringify({ prizes, evento: currentEvent })
       });
       if (response.status === 401) throw new Error('Senha incorreta');
       if (!response.ok) throw new Error('Falha ao salvar');
@@ -134,7 +135,7 @@ export default function App() {
         const errorData = await response.json();
         alert(errorData.error || 'Erro ao processar sorteio.');
         setLoading(false);
-        return; // Para tudo, sem fallback
+        return;
       }
 
       const data = await response.json();
@@ -196,7 +197,15 @@ export default function App() {
                   placeholder="Digite seu email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  disabled={emailBloqueado} // ← travado se veio do Google Forms
                 />
+                {/* Mensagem de confirmação quando email veio da URL */}
+                {emailBloqueado && (
+                  <small className="text-success mt-1 d-block">
+                    <i className="bi bi-check-circle-fill me-1"></i>
+                    Email verificado pelo formulário
+                  </small>
+                )}
               </div>
 
               <div className="mt-5 mb-2 w-100 z-3 position-relative">
