@@ -6,7 +6,7 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 
 export default function App() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
-  
+
   // Captura qual é o evento pela URL (ex: ?evento=brasilia)
   const queryParams = new URLSearchParams(window.location.search);
   const currentEvent = queryParams.get('evento') || 'geral';
@@ -39,6 +39,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const wheelRef = useRef(null);
+  const [email, setEmail] = useState('');
+  const [hasGiro, setHasGiro] = useState(false);
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
 
@@ -103,7 +105,14 @@ export default function App() {
   };
 
   const handleSpin = async () => {
-    if (spinning || loading) return;
+    if (spinning || loading || hasGiro) return;
+
+    // ✅ Validação de email antes de qualquer coisa
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!email || !emailRegex.test(email)) {
+      alert('Por favor, insira um e-mail válido para participar.');
+      return;
+    }
 
     if (availablePrizes.length < 2) {
       alert("Precisas de pelo menos 2 brindes com stock!");
@@ -114,34 +123,38 @@ export default function App() {
     setResult(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/spin`, { 
+      const response = await fetch(`${API_URL}/api/spin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ evento: currentEvent }) // Diz qual evento está a sortear
+        body: JSON.stringify({ evento: currentEvent, email })
       });
 
-      if (!response.ok) throw new Error("Usando sorteio local");
+      // ✅ Lê o erro real do backend e mostra pro usuário
+      if (!response.ok) {
+        const errorData = await response.json();
+        alert(errorData.error || 'Erro ao processar sorteio.');
+        setLoading(false);
+        return; // Para tudo, sem fallback
+      }
 
       const data = await response.json();
       setLoading(false);
       setSpinning(true);
+      setHasGiro(true); // ✅ Trava o botão após girar
 
       const winningIndex = availablePrizes.findIndex(p => p.name === data.prize);
-
       if (winningIndex !== -1) {
         wheelRef.current.startAnimation(winningIndex, data.prize);
-      } else {
-        throw new Error("Prémio sorteado não encontrado");
       }
 
-      setPrizes(prizes.map(p => p.name === data.prize ? { ...p, quantity: p.quantity - 1 } : p));
+      setPrizes(prizes.map(p =>
+        p.name === data.prize ? { ...p, quantity: p.quantity - 1 } : p
+      ));
+
     } catch (e) {
+      // Só cai aqui se for erro de rede real (servidor offline)
       setLoading(false);
-      setSpinning(true);
-      const mockIndex = Math.floor(Math.random() * availablePrizes.length);
-      const mockPrizeName = availablePrizes[mockIndex].name;
-      wheelRef.current.startAnimation(mockIndex);
-      setPrizes(prizes.map(p => p.name === mockPrizeName ? { ...p, quantity: p.quantity - 1 } : p));
+      alert('Erro de conexão com o servidor. Tente novamente.');
     }
   };
 
@@ -174,8 +187,20 @@ export default function App() {
             <div className="glass-card p-5 d-flex flex-column align-items-center justify-content-center shadow-lg position-relative">
               <Wheel ref={wheelRef} prizes={availablePrizes} spinning={spinning} setSpinning={setSpinning} onSpinFinish={setResult} onSpinClick={handleSpin} />
 
+              <div className="mt-4 w-100">
+                <label htmlFor="email" className="form-label text-white-50">Email</label>
+                <input
+                  type="email"
+                  className="form-control bg-dark border-secondary text-white-50 placeholder:text-white-50"
+                  id="email"
+                  placeholder="Digite seu email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+
               <div className="mt-5 mb-2 w-100 z-3 position-relative">
-                <button className={`btn btn-lg btn-spin ${spinning || loading ? 'btn-secondary' : 'btn-success pulse'}`} onClick={handleSpin} disabled={spinning || loading}>
+                <button className={`btn btn-lg btn-spin ${spinning || loading ? 'btn-secondary' : 'btn-success pulse'}`} onClick={handleSpin} disabled={spinning || loading || hasGiro}>
                   {loading ? 'A PROCESSAR...' : spinning ? 'A GIRAR...' : <><i className="bi bi-bullseye me-2"></i>GIRAR ROLETA</>}
                 </button>
               </div>

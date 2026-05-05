@@ -53,7 +53,7 @@ app.post('/api/auth', requireAdmin, (req, res) => {
  * ROTA: BUSCAR CONFIGURAÇÕES (AGORA FILTRA POR EVENTO)
  */
 app.get('/api/prizes', async (req, res) => {
-    const evento = req.query.evento || 'geral'; // Captura o evento da URL
+    const evento = req.query.evento || 'geral';
     try {
         const result = await pool.query(
             'SELECT name, quantity FROM prizes WHERE event_slug = $1 ORDER BY id ASC',
@@ -80,7 +80,6 @@ app.post('/api/prizes/save', requireAdmin, async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-        // Apaga apenas os prémios DESTE evento
         await client.query('DELETE FROM prizes WHERE event_slug = $1', [eventSlug]);
 
         for (const p of prizes) {
@@ -119,11 +118,27 @@ app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
  * ROTA DE SORTEIO (ISOLADO POR EVENTO)
  */
 app.post('/api/spin', async (req, res) => {
-    const { evento } = req.body;
+    const { evento, email } = req.body;
     const eventSlug = evento || 'geral';
+
+    if (!email || !email.includes('@')) {
+        return res.status(400).json({ error: 'Um email válido é obrigatório para participar do sorteio.' });
+    }
+
     const client = await pool.connect();
 
     try {
+        // --- VALIDAÇÃO: verifica se o email já participou neste evento ---
+        const checkUser = await client.query(
+            'SELECT id FROM spin_history WHERE email = $1 AND event_slug = $2',
+            [email, eventSlug]
+        );
+
+        if (checkUser.rowCount > 0) {
+            return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
+        }
+        // -----------------------------------------------------------------
+
         let spinSuccess = false;
         let finalPrize = '';
         let attempts = 0;
@@ -132,7 +147,6 @@ app.post('/api/spin', async (req, res) => {
         while (!spinSuccess && attempts < MAX_ATTEMPTS) {
             attempts++;
 
-            // Procura stock apenas neste evento
             const { rows: availablePrizes } = await client.query(
                 'SELECT name, quantity FROM prizes WHERE quantity > 0 AND event_slug = $1',
                 [eventSlug]
@@ -162,9 +176,10 @@ app.post('/api/spin', async (req, res) => {
             );
 
             if (updateResult.rowCount > 0) {
+                // ✅ CORRIGIDO: email agora é salvo corretamente no histórico
                 const historyResult = await client.query(
-                    'INSERT INTO spin_history (prize_name, event_slug) VALUES ($1, $2) RETURNING *',
-                    [prizeName, eventSlug]
+                    'INSERT INTO spin_history (prize_name, event_slug, email) VALUES ($1, $2, $3) RETURNING *',
+                    [prizeName, eventSlug, email]
                 );
                 await client.query('COMMIT');
                 spinSuccess = true;
@@ -175,10 +190,16 @@ app.post('/api/spin', async (req, res) => {
             }
         }
 
-        if (!spinSuccess) res.status(500).json({ error: 'Muitos acessos. Tente novamente.' });
+        if (!spinSuccess) res.status(500).json({ error: 'Muitos acessos simultâneos. Tente novamente.' });
 
     } catch (error) {
         await client.query('ROLLBACK');
+        // ✅ Trata violação da constraint UNIQUE (email + event_slug)
+        // Código 23505 = unique_violation no PostgreSQL
+        if (error.code === '23505') {
+            return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
+        }
+        console.error('[ERRO NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar sorteio.' });
     } finally {
         client.release();
