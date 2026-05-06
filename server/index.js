@@ -1,17 +1,15 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
-import crypto from 'crypto';
 import pg from 'pg';
 
 const { Pool } = pg;
 
+// ✅ FIX 6: search_path definido no Pool config — garante consistência em
+//           TODAS as conexões (novas e reutilizadas), não só nas novas.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-});
-
-pool.on('connect', client => {
-    client.query('SET search_path TO roleta, public');
+    options: '-c search_path=roleta,public'
 });
 
 const app = express();
@@ -50,7 +48,7 @@ app.post('/api/auth', requireAdmin, (req, res) => {
 });
 
 /**
- * ROTA: BUSCAR CONFIGURAÇÕES (AGORA FILTRA POR EVENTO)
+ * ROTA: BUSCAR PRÊMIOS (filtrado por evento)
  */
 app.get('/api/prizes', async (req, res) => {
     const evento = req.query.evento || 'geral';
@@ -67,7 +65,7 @@ app.get('/api/prizes', async (req, res) => {
 });
 
 /**
- * ROTA: SALVAR CONFIGURAÇÕES (ISOLADO POR EVENTO)
+ * ROTA: SALVAR CONFIGURAÇÕES (isolado por evento)
  */
 app.post('/api/prizes/save', requireAdmin, async (req, res) => {
     const { prizes, evento } = req.body;
@@ -101,7 +99,7 @@ app.post('/api/prizes/save', requireAdmin, async (req, res) => {
 });
 
 /**
- * ROTA: LIMPAR BANCO (ISOLADO POR EVENTO)
+ * ROTA: LIMPAR BANCO (isolado por evento)
  */
 app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
     const evento = req.query.evento || 'geral';
@@ -115,7 +113,32 @@ app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
 });
 
 /**
- * ROTA DE SORTEIO (ISOLADO POR EVENTO)
+ * ✅ FIX 4: ROTA NOVA — VERIFICAR SE EMAIL JÁ PARTICIPOU
+ * Usada pelo frontend no carregamento da página para restaurar
+ * o estado correto após refresh (evita roleta "desbloqueada" indevidamente).
+ */
+app.get('/api/check-spin', async (req, res) => {
+    const { evento, email } = req.query;
+    const eventSlug = evento || 'geral';
+
+    if (!email) {
+        return res.status(400).json({ error: 'Email obrigatório.' });
+    }
+
+    try {
+        const result = await pool.query(
+            'SELECT id FROM spin_history WHERE email = $1 AND event_slug = $2',
+            [email, eventSlug]
+        );
+        res.json({ jaParticipou: result.rowCount > 0 });
+    } catch (error) {
+        console.error('[ERRO CHECK-SPIN]:', error);
+        res.status(500).json({ error: 'Erro ao verificar participação.' });
+    }
+});
+
+/**
+ * ROTA DE SORTEIO (isolado por evento)
  */
 app.post('/api/spin', async (req, res) => {
     const { evento, email } = req.body;
@@ -126,9 +149,13 @@ app.post('/api/spin', async (req, res) => {
     }
 
     const client = await pool.connect();
+    // ✅ FIX 5: Flag para controlar se BEGIN foi chamado.
+    //           Evita ROLLBACK sem transação ativa no bloco catch,
+    //           o que causava warnings silenciosos no PostgreSQL.
+    let transactionStarted = false;
 
     try {
-        // --- VALIDAÇÃO: verifica se o email já participou neste evento ---
+        // Verifica se o email já participou neste evento
         const checkUser = await client.query(
             'SELECT id FROM spin_history WHERE email = $1 AND event_slug = $2',
             [email, eventSlug]
@@ -137,7 +164,6 @@ app.post('/api/spin', async (req, res) => {
         if (checkUser.rowCount > 0) {
             return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
         }
-        // -----------------------------------------------------------------
 
         let spinSuccess = false;
         let finalPrize = '';
@@ -169,6 +195,7 @@ app.post('/api/spin', async (req, res) => {
             }
 
             await client.query('BEGIN');
+            transactionStarted = true; // ✅ Marca que transação está aberta
 
             const updateResult = await client.query(
                 'UPDATE prizes SET quantity = quantity - 1 WHERE name = $1 AND event_slug = $2 AND quantity > 0 RETURNING *',
@@ -176,36 +203,48 @@ app.post('/api/spin', async (req, res) => {
             );
 
             if (updateResult.rowCount > 0) {
-                // ✅ CORRIGIDO: email agora é salvo corretamente no histórico
                 const historyResult = await client.query(
                     'INSERT INTO spin_history (prize_name, event_slug, email) VALUES ($1, $2, $3) RETURNING *',
                     [prizeName, eventSlug, email]
                 );
                 await client.query('COMMIT');
+                transactionStarted = false; // ✅ Transação fechada com sucesso
                 spinSuccess = true;
                 finalPrize = prizeName;
                 return res.json({ prize: finalPrize, timestamp: historyResult.rows[0].created_at });
             } else {
                 await client.query('ROLLBACK');
+                transactionStarted = false; // ✅ Transação fechada com rollback
             }
         }
 
-        if (!spinSuccess) res.status(500).json({ error: 'Muitos acessos simultâneos. Tente novamente.' });
+        if (!spinSuccess) {
+            res.status(500).json({ error: 'Muitos acessos simultâneos. Tente novamente.' });
+        }
 
     } catch (error) {
-        await client.query('ROLLBACK');
-        // ✅ Trata violação da constraint UNIQUE (email + event_slug)
-        // Código 23505 = unique_violation no PostgreSQL
+        // ✅ FIX 5: Só executa ROLLBACK se a transação realmente foi aberta
+        if (transactionStarted) {
+            try {
+                await client.query('ROLLBACK');
+            } catch (rollbackError) {
+                console.error('[ERRO AO FAZER ROLLBACK]:', rollbackError);
+            }
+        }
+        // Trata violação da constraint UNIQUE (email + event_slug) — código 23505
         if (error.code === '23505') {
             return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
         }
         console.error('[ERRO NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar sorteio.' });
     } finally {
-        client.release();
+        client.release(); // Sempre libera a conexão de volta pro pool
     }
 });
 
+/**
+ * ROTA: HISTÓRICO (últimos 10 por evento)
+ */
 app.get('/api/history', async (req, res) => {
     const evento = req.query.evento || 'geral';
     try {
@@ -220,4 +259,5 @@ app.get('/api/history', async (req, res) => {
 });
 
 app.use((req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
+
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
