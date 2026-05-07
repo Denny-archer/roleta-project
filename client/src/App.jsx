@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import Wheel from './components/Wheel';
 import Sidebar from './components/Sidebar';
 import 'bootstrap/dist/css/bootstrap.min.css';
@@ -8,7 +8,10 @@ export default function App() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
 
   // Captura o evento E o email pela URL (ex: ?evento=brasilia&email=user@coffito.gov.br)
-  const queryParams = new URLSearchParams(window.location.search);
+  const queryParams = useMemo(
+    () => new URLSearchParams(window.location.search),
+    []
+  );
   const currentEvent = queryParams.get('evento') || 'geral';
   const emailFromUrl = queryParams.get('email') || '';
   const emailBloqueado = !!emailFromUrl; // true se veio da URL (Forms)
@@ -25,6 +28,7 @@ export default function App() {
   const wheelRef = useRef(null);
   const [email, setEmail] = useState(emailFromUrl);
   const [hasGiro, setHasGiro] = useState(false);
+
   // ✅ FIX 3: Estado para mensagem de erro inline (substitui alert() agressivo)
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -161,7 +165,11 @@ export default function App() {
 
       // ✅ FIX 3: Erros do backend mostrados inline, não em alert()
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorData = {};
+
+        try {
+          errorData = await response.json();
+        } catch { }
         setErrorMsg(errorData.error || 'Erro ao processar sorteio.');
         // Se já participou, trava o botão também (caso raro de race condition)
         if (response.status === 403) setHasGiro(true);
@@ -172,17 +180,29 @@ export default function App() {
       const data = await response.json();
       setLoading(false);
       setSpinning(true);
-      setHasGiro(true); // Trava o botão após girar
+
 
       const winningIndex = availablePrizes.findIndex(p => p.name === data.prize);
       if (winningIndex !== -1) {
-        wheelRef.current.startAnimation(winningIndex, data.prize);
+        if (wheelRef.current?.startAnimation) {
+          wheelRef.current.startAnimation(winningIndex, data.prize);
+        } else {
+          setResult(data.prize);
+          setSpinning(false);
+        }
+      } else {
+        setLoading(false);
+        setSpinning(false);
+        setErrorMsg('Erro ao localizar prêmio sorteado.');
       }
 
-      setPrizes(prizes.map(p =>
-        p.name === data.prize ? { ...p, quantity: p.quantity - 1 } : p
-      ));
-
+      setPrizes(prev =>
+        prev.map(p =>
+          p.name === data.prize
+            ? { ...p, quantity: p.quantity - 1 }
+            : p
+        )
+      );
     } catch (e) {
       // Só cai aqui se for erro de rede real (servidor offline)
       setLoading(false);
@@ -209,7 +229,10 @@ export default function App() {
             prizes={availablePrizes}
             spinning={spinning}
             setSpinning={setSpinning}
-            onSpinFinish={setResult}
+            onSpinFinish={(prize) => {
+              setResult(prize);
+              setHasGiro(true);
+            }}
             onSpinClick={handleSpin}
           />
 
@@ -275,7 +298,7 @@ export default function App() {
         <h1 className="display-1 opacity-25 mb-4"><i className="bi bi-exclamation-triangle-fill"></i></h1>
         <h3>Sem Inventário Suficiente</h3>
         <p>Configura pelo menos 2 brindes no evento <b>{currentEvent.toUpperCase()}</b> para girar.</p>
-        <button className="btn btn-primary mt-3" onClick={() => setIsSidebarOpen(true)}>Abrir Configurações</button>
+        <button className="btn btn-primary mt-3" onClick={handleOpenSettings}>Abrir Configurações</button>
       </div>
     );
   };
@@ -352,16 +375,26 @@ export default function App() {
 
       <style>{`
         body, html { margin: 0; padding: 0; overflow-x: hidden; background: #0f2027; }
-        .app-wrapper { min-height: 100vh; width: 100vw; background: linear-gradient(135deg, #091217, #15252e, #1c323d); font-family: 'Inter', sans-serif; color: white; }
-        .glass-card { background: rgba(255,255,255,0.02); border-radius: 40px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+        .app-wrapper { min-height: 100vh; width: 100%; background: linear-gradient(135deg, #091217, #15252e, #1c323d); font-family: 'Inter', sans-serif; color: white; }
+        .glass-card { background: rgba(255,255,255,0.02); border-radius: 40px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(4px); }
         .btn-spin { font-weight: 900; border-radius: 50px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.3); width: 100%; }
         .pulse { animation: pulse-animation 2s infinite; }
+        .glass-card {
+          background: rgba(255,255,255,0.06);
+          backdrop-filter: blur(4px);
+          -webkit-backdrop-filter: blur(4px);
+          }
+
+        @supports not ((-webkit-backdrop-filter: blur(4px)) or (backdrop-filter: blur(4px)))) {
+          .glass-card {
+            background: rgba(30,41,59,0.95);
+          }
+        }
         @keyframes pulse-animation { 0% { box-shadow: 0 0 0 0px rgba(25, 135, 84, 0.4); } 100% { box-shadow: 0 0 0 20px rgba(25, 135, 84, 0); } }
         .result-box { background: rgba(0,0,0,0.4); padding: 30px; border-radius: 20px; border: 2px dashed rgba(255,255,255,0.1); transition: all 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
         .hover-glow:hover { box-shadow: 0 0 15px rgba(255,255,255,0.3) !important; transform: translateY(-1px); }
         .win-popup-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15, 23, 42, 0.85); backdrop-filter: blur(8px); z-index: 2000; animation: fadeInOverlay 0.3s ease-out forwards; }
-        .win-popup-content { background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(255, 210, 0, 0.3); border-radius: 30px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); width: 90%; max-width: 500px; transform: scale(0.8); opacity: 0; animation: popIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s forwards; }
-        .glow-effect { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; background: radial-gradient(circle, rgba(255,210,0,0.15) 0%, rgba(0,0,0,0) 70%); z-index: 0; pointer-events: none; }
+        .win-popup-content { background: linear-gradient(145deg, #1e293b, #0f172a); border: 1px solid rgba(255, 210, 0,
         .win-icon { font-size: 4rem; position: relative; z-index: 1; animation: floatIcon 2s ease-in-out infinite; display: inline-block; }
         .win-title { color: #FFD200; font-weight: 900; letter-spacing: 2px; position: relative; z-index: 1; }
         .win-prize-name { color: white; text-shadow: 0 0 20px rgba(255,255,255,0.4); position: relative; z-index: 1; }
