@@ -5,8 +5,8 @@ import pg from 'pg';
 
 const { Pool } = pg;
 
-// ✅ FIX 6: search_path definido no Pool config — garante consistência em
-//           TODAS as conexões (novas e reutilizadas), não só nas novas.
+// ✅ FIX #6: search_path via options garante consistência em todas as conexões do pool,
+//            novas ou reutilizadas (o pool.on('connect') só disparava em conexões novas)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
     options: '-c search_path=roleta,public'
@@ -48,7 +48,7 @@ app.post('/api/auth', requireAdmin, (req, res) => {
 });
 
 /**
- * ROTA: BUSCAR PRÊMIOS (filtrado por evento)
+ * ROTA: BUSCAR PRÉMIOS (FILTRADO POR EVENTO)
  */
 app.get('/api/prizes', async (req, res) => {
     const evento = req.query.evento || 'geral';
@@ -65,7 +65,7 @@ app.get('/api/prizes', async (req, res) => {
 });
 
 /**
- * ROTA: SALVAR CONFIGURAÇÕES (isolado por evento)
+ * ROTA: SALVAR CONFIGURAÇÕES (ISOLADO POR EVENTO)
  */
 app.post('/api/prizes/save', requireAdmin, async (req, res) => {
     const { prizes, evento } = req.body;
@@ -99,7 +99,7 @@ app.post('/api/prizes/save', requireAdmin, async (req, res) => {
 });
 
 /**
- * ROTA: LIMPAR BANCO (isolado por evento)
+ * ROTA: LIMPAR BANCO (ISOLADO POR EVENTO)
  */
 app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
     const evento = req.query.evento || 'geral';
@@ -113,9 +113,9 @@ app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
 });
 
 /**
- * ✅ FIX 4: ROTA NOVA — VERIFICAR SE EMAIL JÁ PARTICIPOU
+ * ✅ FIX #4: ROTA NOVA — VERIFICAR SE EMAIL JÁ PARTICIPOU
  * Usada pelo frontend no carregamento da página para restaurar
- * o estado correto após refresh (evita roleta "desbloqueada" indevidamente).
+ * o estado correto após refresh ou re-entrada no link.
  */
 app.get('/api/check-spin', async (req, res) => {
     const { evento, email } = req.query;
@@ -138,7 +138,7 @@ app.get('/api/check-spin', async (req, res) => {
 });
 
 /**
- * ROTA DE SORTEIO (isolado por evento)
+ * ROTA DE SORTEIO (ISOLADO POR EVENTO)
  */
 app.post('/api/spin', async (req, res) => {
     const { evento, email } = req.body;
@@ -149,9 +149,7 @@ app.post('/api/spin', async (req, res) => {
     }
 
     const client = await pool.connect();
-    // ✅ FIX 5: Flag para controlar se BEGIN foi chamado.
-    //           Evita ROLLBACK sem transação ativa no bloco catch,
-    //           o que causava warnings silenciosos no PostgreSQL.
+    // ✅ FIX #5: Flag para controlar se BEGIN foi chamado antes de fazer ROLLBACK no catch
     let transactionStarted = false;
 
     try {
@@ -194,8 +192,9 @@ app.post('/api/spin', async (req, res) => {
                 }
             }
 
+            // ✅ FIX #5: Marca que a transação foi aberta
             await client.query('BEGIN');
-            transactionStarted = true; // ✅ Marca que transação está aberta
+            transactionStarted = true;
 
             const updateResult = await client.query(
                 'UPDATE prizes SET quantity = quantity - 1 WHERE name = $1 AND event_slug = $2 AND quantity > 0 RETURNING *',
@@ -208,13 +207,13 @@ app.post('/api/spin', async (req, res) => {
                     [prizeName, eventSlug, email]
                 );
                 await client.query('COMMIT');
-                transactionStarted = false; // ✅ Transação fechada com sucesso
+                transactionStarted = false; // transação fechada com sucesso
                 spinSuccess = true;
                 finalPrize = prizeName;
                 return res.json({ prize: finalPrize, timestamp: historyResult.rows[0].created_at });
             } else {
                 await client.query('ROLLBACK');
-                transactionStarted = false; // ✅ Transação fechada com rollback
+                transactionStarted = false; // transação fechada com rollback
             }
         }
 
@@ -223,27 +222,24 @@ app.post('/api/spin', async (req, res) => {
         }
 
     } catch (error) {
-        // ✅ FIX 5: Só executa ROLLBACK se a transação realmente foi aberta
+        // ✅ FIX #5: Só faz ROLLBACK se BEGIN foi realmente chamado
         if (transactionStarted) {
-            try {
-                await client.query('ROLLBACK');
-            } catch (rollbackError) {
-                console.error('[ERRO AO FAZER ROLLBACK]:', rollbackError);
-            }
+            await client.query('ROLLBACK');
         }
-        // Trata violação da constraint UNIQUE (email + event_slug) — código 23505
+        // Trata violação da constraint UNIQUE (email + event_slug) — código 23505 no PostgreSQL
         if (error.code === '23505') {
             return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
         }
         console.error('[ERRO NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar sorteio.' });
     } finally {
-        client.release(); // Sempre libera a conexão de volta pro pool
+        // Sempre libera o client de volta ao pool
+        client.release();
     }
 });
 
 /**
- * ROTA: HISTÓRICO (últimos 10 por evento)
+ * ROTA: HISTÓRICO DE SORTEIOS
  */
 app.get('/api/history', async (req, res) => {
     const evento = req.query.evento || 'geral';
