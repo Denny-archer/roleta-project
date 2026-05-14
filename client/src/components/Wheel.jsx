@@ -1,13 +1,14 @@
 import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 
 // Nova paleta de cores neutras, sofisticadas e sóbrias
+
 const COLORS = [
-  ['#475569', '#334155'], // Slate (Azul-acinzentado escuro)
-  ['#52525b', '#3f3f46'], // Zinc (Cinza neutro médio)
-  ['#78716c', '#57534e'], // Stone (Cinza acastanhado / Taupe)
-  ['#4b5563', '#374151'], // Gray (Cinza clássico)
-  ['#3f3f46', '#27272a'], // Dark Zinc (Cinza quase chumbo)
-  ['#64748b', '#475569']  // Light Slate (Azul-acinzentado suave)
+  ['#07005B', '#1326C4'], // Azul institucional
+  ['#1326C4', '#241A78'], // Azul royal
+  ['#00C96B', '#2BFF88'], // Verde neon
+  ['#0B0F3B', '#07005B'], // Azul navy
+  ['#FF8A00', '#FF5E00'], // Laranja forte
+  ['#FFD23F', '#FFB800']  // Amarelo vibrante
 ];
 
 // 👇 Adicionámos as props 'spinning' e 'onSpinClick'
@@ -34,47 +35,47 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinC
       ctx.beginPath();
       ctx.moveTo(center, center);
       ctx.arc(center, center, radius, startAngle, endAngle);
-      
+
       const [c1, c2] = COLORS[i % COLORS.length];
       const grad = ctx.createRadialGradient(center, center, 0, center, center, radius);
-      grad.addColorStop(0.2, c1); 
+      grad.addColorStop(0.2, c1);
       grad.addColorStop(1, c2);
-      
-      ctx.fillStyle = grad; 
+
+      ctx.fillStyle = grad;
       ctx.fill();
-      
-      ctx.strokeStyle = 'rgba(255,255,255,0.05)'; 
-      ctx.lineWidth = 1.5; 
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
 
       ctx.save();
       ctx.translate(center, center);
       ctx.rotate(startAngle + arc / 2);
-      ctx.textAlign = 'right'; 
-      ctx.fillStyle = '#f8fafc'; 
-      
-      ctx.font = '600 16px sans-serif'; 
-      ctx.shadowBlur = 4; 
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#f8fafc';
+
+      ctx.font = '600 16px sans-serif';
+      ctx.shadowBlur = 4;
       ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      
+
       ctx.fillText(prizeName.length > 12 ? prizeName.substring(0, 10) + '..' : prizeName, radius - 40, 6);
       ctx.restore();
     });
 
     // Círculo central modernizado
-    ctx.beginPath(); 
+    ctx.beginPath();
     ctx.arc(center, center, 35, 0, Math.PI * 2);
-    ctx.fillStyle = '#1e293b'; 
+    ctx.fillStyle = '#1e293b';
     ctx.fill();
-    ctx.shadowBlur = 10; 
+    ctx.shadowBlur = 10;
     ctx.shadowColor = 'rgba(0,0,0,0.3)';
-    ctx.strokeStyle = '#475569'; 
-    ctx.lineWidth = 4; 
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 4;
     ctx.stroke();
 
-    ctx.fillStyle = '#f8fafc'; 
+    ctx.fillStyle = '#f8fafc';
     ctx.textAlign = 'center';
-    ctx.font = 'bold 16px sans-serif'; 
+    ctx.font = 'bold 16px sans-serif';
     ctx.shadowBlur = 0;
     ctx.fillText("GO!", center, center + 6);
   };
@@ -155,14 +156,14 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinC
     <div className="position-relative d-inline-block mt-4">
       <div className="wheel-pointer" />
       {/* 👇 Adicionámos onClick e onMouseMove ao canvas 👇 */}
-      <canvas 
-        ref={canvasRef} 
-        width={480} 
-        height={480} 
-        className="wheel-canvas" 
+      <canvas
+        ref={canvasRef}
+        width={480}
+        height={480}
+        className="wheel-canvas"
         onClick={handleClick}
         onMouseMove={handleMouseMove}
-        onMouseLeave={() => { if(canvasRef.current) canvasRef.current.style.cursor = 'default'; }}
+        onMouseLeave={() => { if (canvasRef.current) canvasRef.current.style.cursor = 'default'; }}
       />
       <style>{`
         .wheel-pointer {
