@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import cors from 'cors';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -15,35 +14,48 @@ const pool = new Pool({
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-// 1. Criamos a regra uma única vez e guardamos numa variável
-const corsOptions = {
-    origin: function (origin, callback) {
-        const allowedOrigins = [
-            process.env.FRONTEND_URL,
-            'https://roleta.coffito.gov.br',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://172.16.10.28:8081'
-        ];
+// Middleware CORS manual (Opção Nuclear)
+app.use((req, res, next) => {
+    const allowedOrigins = [
+        process.env.FRONTEND_URL,
+        'https://roleta.coffito.gov.br',
+        'http://localhost:5173',
+        'http://localhost:5174',
+        'http://172.16.10.28:8081'
+    ];
 
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            console.error('[CORS BLOQUEADO] Origem não permitida:', origin);
-            callback(new Error('Bloqueado pelo CORS'));
-        }
-    },
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password'],
-    credentials: true,
-    optionsSuccessStatus: 200
-};
+    const origin = req.headers.origin;
 
-// 2. Aplicamos a regra TANTO para requisições normais quanto para o OPTIONS
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
+    // Permite apenas origens autorizadas
+    if (allowedOrigins.includes(origin)) {
+        res.setHeader('Access-Control-Allow-Origin', origin);
+    }
+
+    // Cabeçalhos permitidos
+    res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, x-admin-password, X-Admin-Password'
+    );
+
+    // Métodos permitidos
+    res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET, POST, PUT, DELETE, OPTIONS'
+    );
+
+    // Permite cookies/autenticação
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // Responde imediatamente às requisições OPTIONS
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    next();
+});
 
 app.use(express.json());
+
 const requireAdmin = (req, res, next) => {
     const clientPassword = req.headers['x-admin-password'] || req.headers['X-Admin-Password'];
     const serverPassword = process.env.ADMIN_PASSWORD;
