@@ -15,17 +15,35 @@ const pool = new Pool({
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-app.use(cors({
-    origin: [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://172.16.10.28:8081', 'https://roleta.coffito.gov.br'],
+// 1. Criamos a regra uma única vez e guardamos numa variável
+const corsOptions = {
+    origin: function (origin, callback) {
+        const allowedOrigins = [
+            process.env.FRONTEND_URL,
+            'https://roleta.coffito.gov.br',
+            'http://localhost:5173',
+            'http://localhost:5174',
+            'http://172.16.10.28:8081'
+        ];
+
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            console.error('[CORS BLOQUEADO] Origem não permitida:', origin);
+            callback(new Error('Bloqueado pelo CORS'));
+        }
+    },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password'],
     credentials: true,
     optionsSuccessStatus: 200
-}));
+};
 
-app.options('*', cors());
+// 2. Aplicamos a regra TANTO para requisições normais quanto para o OPTIONS
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
-
 const requireAdmin = (req, res, next) => {
     const clientPassword = req.headers['x-admin-password'] || req.headers['X-Admin-Password'];
     const serverPassword = process.env.ADMIN_PASSWORD;
