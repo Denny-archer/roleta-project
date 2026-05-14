@@ -14,43 +14,22 @@ const pool = new Pool({
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-// Middleware CORS manual (Opção Nuclear)
+// MIDDLEWARE DE RASTREIO E LIBERAÇÃO TOTAL
 app.use((req, res, next) => {
-    const allowedOrigins = [
-        process.env.FRONTEND_URL,
-        'https://roleta.coffito.gov.br',
-        'http://localhost:5173',
-        'http://localhost:5174',
-        'http://172.16.10.28:8081'
-    ];
+    // Pega a origem de quem chamou, ou usa '*' se vier vazio
+    const origin = req.headers.origin || '*';
+    
+    // Imprime no terminal do servidor para sabermos se o pedido chegou aqui
+    console.log(`[RASTREIO CORS] Método: ${req.method} | Origem: ${origin} | Rota: ${req.url}`);
 
-    const origin = req.headers.origin;
-
-    // Permite apenas origens autorizadas
-    if (allowedOrigins.includes(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-    }
-
-    // Cabeçalhos permitidos
-    res.setHeader(
-        'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, x-admin-password, X-Admin-Password'
-    );
-
-    // Métodos permitidos
-    res.setHeader(
-        'Access-Control-Allow-Methods',
-        'GET, POST, PUT, DELETE, OPTIONS'
-    );
-
-    // Permite cookies/autenticação
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-password, X-Admin-Password');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
 
-    // Responde imediatamente às requisições OPTIONS
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
-
     next();
 });
 
