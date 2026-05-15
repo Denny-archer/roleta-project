@@ -24,11 +24,10 @@ const PORT = Number(process.env.PORT || 3000);
 //    O middleware manual causava problemas quando o Express lançava erros antes de setar headers.
 const allowedOrigins = [
     process.env.FRONTEND_URL,
+    'https://roleta.coffito.gov.br',
     'http://localhost:5173',
     'http://localhost:5174',
-    'http://172.16.10.28:8081',
-    'https://roleta.coffito.gov.br',
-    'https://gsb.ti.coffito.gov.br'
+    'http://172.16.10.28:8081'
 ].filter(Boolean);
 
 app.use(cors({
