@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import pg from 'pg';
 
 const { Pool } = pg;
@@ -14,25 +15,15 @@ const pool = new Pool({
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-// MIDDLEWARE DE RASTREIO E LIBERAÇÃO TOTAL
-app.use((req, res, next) => {
-    // Pega a origem de quem chamou, ou usa '*' se vier vazio
-    const origin = req.headers.origin || '*';
-    
-    // Imprime no terminal do servidor para sabermos se o pedido chegou aqui
-    console.log(`[RASTREIO CORS] Método: ${req.method} | Origem: ${origin} | Rota: ${req.url}`);
+app.use(cors({
+    origin: [process.env.FRONTEND_URL, 'http://localhost:5173', 'http://localhost:5174', 'http://172.16.10.28:8081', 'https://roleta.coffito.gov.br'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password'],
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
 
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-password, X-Admin-Password');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
-
+app.options('*', cors());
 app.use(express.json());
 
 const requireAdmin = (req, res, next) => {
