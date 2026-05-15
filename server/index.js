@@ -1,38 +1,49 @@
 import 'dotenv/config';
 import express from 'express';
+import cors from 'cors';
 import pg from 'pg';
 
 const { Pool } = pg;
 
-// ✅ FIX #6: search_path via options garante consistência em todas as conexões do pool,
-//            novas ou reutilizadas (o pool.on('connect') só disparava em conexões novas)
+// ✅ Pool sem "options" — não funciona junto com connectionString no node-postgres.
+//    O search_path é aplicado via pool.on('connect') que roda em CADA conexão nova do pool.
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    options: '-c search_path=roleta,public'
+});
+
+pool.on('connect', client => {
+    client.query('SET search_path TO roleta, public').catch(err => {
+        console.error('[ERRO search_path]:', err.message);
+    });
 });
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
 
-// MIDDLEWARE DE RASTREIO E LIBERAÇÃO TOTAL
-app.use((req, res, next) => {
-    // Pega a origem de quem chamou, ou usa '*' se vier vazio
-    const origin = req.headers.origin || '*';
-    
-    // Imprime no terminal do servidor para sabermos se o pedido chegou aqui
-    console.log(`[RASTREIO CORS] Método: ${req.method} | Origem: ${origin} | Rota: ${req.url}`);
+// ✅ CORS via pacote oficial — mais robusto e battle-tested que middleware manual.
+//    O middleware manual causava problemas quando o Express lançava erros antes de setar headers.
+const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://172.16.10.28:8081',
+    'https://roleta.coffito.gov.br'
+].filter(Boolean);
 
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-admin-password, X-Admin-Password');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
+app.use(cors({
+    origin: (origin, callback) => {
+        // Permite requisições sem origin (ex: Postman, health checks)
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        callback(new Error(`Origem não permitida pelo CORS: ${origin}`));
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'X-Admin-Password'],
+    credentials: true,
+    optionsSuccessStatus: 200
+}));
 
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    next();
-});
-
+app.options('*', cors());
 app.use(express.json());
 
 const requireAdmin = (req, res, next) => {
@@ -122,9 +133,8 @@ app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
 });
 
 /**
- * ✅ FIX #4: ROTA NOVA — VERIFICAR SE EMAIL JÁ PARTICIPOU
- * Usada pelo frontend no carregamento da página para restaurar
- * o estado correto após refresh ou re-entrada no link.
+ * ROTA: VERIFICAR SE EMAIL JÁ PARTICIPOU
+ * Usada pelo frontend no carregamento para restaurar estado após refresh.
  */
 app.get('/api/check-spin', async (req, res) => {
     const { evento, email } = req.query;
@@ -158,7 +168,7 @@ app.post('/api/spin', async (req, res) => {
     }
 
     const client = await pool.connect();
-    // ✅ FIX #5: Flag para controlar se BEGIN foi chamado antes de fazer ROLLBACK no catch
+    // Flag para só fazer ROLLBACK se BEGIN foi chamado
     let transactionStarted = false;
 
     try {
@@ -201,7 +211,6 @@ app.post('/api/spin', async (req, res) => {
                 }
             }
 
-            // ✅ FIX #5: Marca que a transação foi aberta
             await client.query('BEGIN');
             transactionStarted = true;
 
@@ -216,13 +225,13 @@ app.post('/api/spin', async (req, res) => {
                     [prizeName, eventSlug, email]
                 );
                 await client.query('COMMIT');
-                transactionStarted = false; // transação fechada com sucesso
+                transactionStarted = false;
                 spinSuccess = true;
                 finalPrize = prizeName;
                 return res.json({ prize: finalPrize, timestamp: historyResult.rows[0].created_at });
             } else {
                 await client.query('ROLLBACK');
-                transactionStarted = false; // transação fechada com rollback
+                transactionStarted = false;
             }
         }
 
@@ -231,18 +240,16 @@ app.post('/api/spin', async (req, res) => {
         }
 
     } catch (error) {
-        // ✅ FIX #5: Só faz ROLLBACK se BEGIN foi realmente chamado
         if (transactionStarted) {
             await client.query('ROLLBACK');
         }
-        // Trata violação da constraint UNIQUE (email + event_slug) — código 23505 no PostgreSQL
+        // Código 23505 = unique_violation no PostgreSQL (email duplicado)
         if (error.code === '23505') {
             return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
         }
         console.error('[ERRO NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar sorteio.' });
     } finally {
-        // Sempre libera o client de volta ao pool
         client.release();
     }
 });
@@ -263,6 +270,14 @@ app.get('/api/history', async (req, res) => {
     }
 });
 
+// ✅ Rota não encontrada
 app.use((req, res) => res.status(404).json({ error: 'Rota não encontrada.' }));
+
+// ✅ Error handler global — garante que erros inesperados do Express
+//    retornem JSON com mensagem clara em vez de travar a resposta
+app.use((err, req, res, next) => {
+    console.error('[ERRO GLOBAL]:', err.message);
+    res.status(500).json({ error: 'Erro interno do servidor.' });
+});
 
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
