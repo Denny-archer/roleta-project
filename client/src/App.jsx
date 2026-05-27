@@ -10,8 +10,7 @@ export default function App() {
   // Captura o evento E o email pela URL (ex: ?evento=brasilia&email=user@coffito.gov.br)
   const queryParams = new URLSearchParams(window.location.search);
   const currentEvent = queryParams.get('evento') || 'geral';
-  const emailFromUrl = queryParams.get('email') || '';
-  const emailBloqueado = !!emailFromUrl; // true se veio da URL (Forms)
+  
 
   // ✅ FIX #1: Estado inicial vazio + flag de loading para evitar tela "Sem Inventário" prematura
   const [prizes, setPrizes] = useState([]);
@@ -22,9 +21,8 @@ export default function App() {
   const [spinning, setSpinning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  
   const wheelRef = useRef(null);
-  const [email, setEmail] = useState(emailFromUrl);
-  const [hasGiro, setHasGiro] = useState(false);
   // ✅ FIX #3: Erro exibido na tela no lugar de alert()
   const [spinError, setSpinError] = useState('');
 
@@ -43,19 +41,7 @@ export default function App() {
           }
         }
 
-        // ✅ FIX #2: Se tem email na URL, verifica se já participou neste evento
-        if (emailFromUrl) {
-          const r2 = await fetch(
-            `${API_URL}/api/check-spin?evento=${currentEvent}&email=${encodeURIComponent(emailFromUrl)}`
-          );
-          if (r2.ok) {
-            const { jaParticipou } = await r2.json();
-            if (jaParticipou) {
-              setHasGiro(true); // trava o botão corretamente
-              setSpinError('Este e-mail já participou do sorteio neste evento.');
-            }
-          }
-        }
+        
       } catch (error) {
         console.error('Erro ao inicializar página:', error);
       } finally {
@@ -65,7 +51,7 @@ export default function App() {
     };
 
     initializePage();
-  }, [API_URL, currentEvent, emailFromUrl]);
+  }, [API_URL, currentEvent]);
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
 
@@ -130,14 +116,9 @@ export default function App() {
   };
 
   const handleSpin = async () => {
-    if (spinning || loading || hasGiro) return;
+    if (spinning || loading) return;
     setSpinError(''); // limpa erro anterior
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) {
-      setSpinError('Por favor, insira um e-mail válido para participar.');
-      return;
-    }
 
     if (availablePrizes.length < 2) {
       setIsSidebarOpen(true);
@@ -151,7 +132,7 @@ export default function App() {
       const response = await fetch(`${API_URL}/api/spin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ evento: currentEvent, email })
+        body: JSON.stringify({ evento: currentEvent })
       });
 
       if (!response.ok) {
@@ -165,7 +146,7 @@ export default function App() {
       const data = await response.json();
       setLoading(false);
       setSpinning(true);
-      setHasGiro(true);
+      
 
       const winningIndex = availablePrizes.findIndex(p => p.name === data.prize);
       if (winningIndex !== -1) {
@@ -207,25 +188,7 @@ export default function App() {
     return (
       <div className="glass-card p-5 d-flex flex-column align-items-center justify-content-center shadow-lg position-relative">
         <Wheel ref={wheelRef} prizes={availablePrizes} spinning={spinning} setSpinning={setSpinning} onSpinFinish={setResult} onSpinClick={handleSpin} />
-
-        <div className="mt-4 w-100">
-          <label htmlFor="email" className="form-label text-white-50">Email</label>
-          <input
-            type="email"
-            className="form-control bg-dark border-secondary text-white-50"
-            id="email"
-            placeholder="Digite seu email"
-            value={email}
-            onChange={(e) => { setEmail(e.target.value); setSpinError(''); }}
-            disabled={emailBloqueado}
-          />
-          {emailBloqueado && (
-            <small className="text-success mt-1 d-block">
-              <i className="bi bi-check-circle-fill me-1"></i>
-              Email verificado pelo formulário
-            </small>
-          )}
-        </div>
+        
 
         {/* ✅ FIX #3: Erro exibido inline, sem alert() */}
         {spinError && (
@@ -237,16 +200,14 @@ export default function App() {
 
         <div className="mt-4 mb-2 w-100 z-3 position-relative">
           <button
-            className={`btn btn-lg btn-spin w-100 ${spinning || loading || hasGiro ? 'btn-secondary' : 'btn-success pulse'}`}
+            className={`btn btn-lg btn-spin w-100 ${spinning || loading ? 'btn-secondary' : 'btn-success pulse'}`}
             onClick={handleSpin}
-            disabled={spinning || loading || hasGiro}
+            disabled={spinning || loading}
           >
             {loading
               ? 'A PROCESSAR...'
               : spinning
               ? 'A GIRAR...'
-              : hasGiro
-              ? '✓ JÁ PARTICIPOU'
               : <><i className="bi bi-bullseye me-2"></i>GIRAR ROLETA</>
             }
           </button>

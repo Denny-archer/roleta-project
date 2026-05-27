@@ -135,54 +135,19 @@ app.delete('/api/prizes/clear', requireAdmin, async (req, res) => {
 });
 
 /**
- * ROTA: VERIFICAR SE EMAIL JÁ PARTICIPOU
- * Usada pelo frontend no carregamento para restaurar estado após refresh.
- */
-app.get('/api/check-spin', async (req, res) => {
-    const { evento, email } = req.query;
-    const eventSlug = evento || 'geral';
-
-    if (!email) {
-        return res.status(400).json({ error: 'Email obrigatório.' });
-    }
-
-    try {
-        const result = await pool.query(
-            'SELECT id FROM spin_history WHERE email = $1 AND event_slug = $2',
-            [email, eventSlug]
-        );
-        res.json({ jaParticipou: result.rowCount > 0 });
-    } catch (error) {
-        console.error('[ERRO CHECK-SPIN]:', error);
-        res.status(500).json({ error: 'Erro ao verificar participação.' });
-    }
-});
-
-/**
  * ROTA DE SORTEIO (ISOLADO POR EVENTO)
  */
 app.post('/api/spin', async (req, res) => {
-    const { evento, email } = req.body;
+    console.log('[SPIN REQUEST]', req.body);
+    const { evento } = req.body;
     const eventSlug = evento || 'geral';
 
-    if (!email || !email.includes('@')) {
-        return res.status(400).json({ error: 'Um email válido é obrigatório para participar do sorteio.' });
-    }
 
     const client = await pool.connect();
     // Flag para só fazer ROLLBACK se BEGIN foi chamado
     let transactionStarted = false;
 
     try {
-        // Verifica se o email já participou neste evento
-        const checkUser = await client.query(
-            'SELECT id FROM spin_history WHERE email = $1 AND event_slug = $2',
-            [email, eventSlug]
-        );
-
-        if (checkUser.rowCount > 0) {
-            return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
-        }
 
         let spinSuccess = false;
         let finalPrize = '';
@@ -196,7 +161,7 @@ app.post('/api/spin', async (req, res) => {
                 'SELECT name, quantity FROM prizes WHERE quantity > 0 AND event_slug = $1',
                 [eventSlug]
             );
-
+            console.log('[AVAILABLE PRIZES]', availablePrizes);
             if (availablePrizes.length === 0) {
                 return res.status(400).json({ error: `Brindes esgotados para o evento: ${eventSlug}` });
             }
@@ -223,8 +188,8 @@ app.post('/api/spin', async (req, res) => {
 
             if (updateResult.rowCount > 0) {
                 const historyResult = await client.query(
-                    'INSERT INTO spin_history (prize_name, event_slug, email) VALUES ($1, $2, $3) RETURNING *',
-                    [prizeName, eventSlug, email]
+                    'INSERT INTO spin_history (prize_name, event_slug) VALUES ($1, $2) RETURNING *',
+                    [prizeName, eventSlug]
                 );
                 await client.query('COMMIT');
                 transactionStarted = false;
@@ -245,10 +210,7 @@ app.post('/api/spin', async (req, res) => {
         if (transactionStarted) {
             await client.query('ROLLBACK');
         }
-        // Código 23505 = unique_violation no PostgreSQL (email duplicado)
-        if (error.code === '23505') {
-            return res.status(403).json({ error: 'Este e-mail já participou do sorteio neste evento!' });
-        }
+
         console.error('[ERRO NO SORTEIO]:', error);
         res.status(500).json({ error: 'Erro ao processar sorteio.' });
     } finally {
