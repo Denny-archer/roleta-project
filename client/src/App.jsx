@@ -257,7 +257,7 @@ export default function App() {
                 <p className="win-subtitle mb-4 text-white-50">Acabaste de ganhar o prémio:</p>
                 <h1 className="win-prize-name display-4 fw-black mb-5 text-uppercase">{result}</h1>
                 <button className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn" onClick={() => setResult(null)}>
-                  🎉 CONTINUAR
+                  🎉 FECHAR
                 </button>
               </div>
             </div>
