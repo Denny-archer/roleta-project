@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
+import React, { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 
 // Nova paleta de cores neutras, sofisticadas e sóbrias
 
@@ -16,7 +16,7 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinC
   const canvasRef = useRef(null);
   const angleRef = useRef(0);
 
-  const draw = (currentAngle) => {
+  const draw = useCallback((currentAngle) => {
     const canvas = canvasRef.current;
     if (!canvas || prizes.length === 0) return;
     const ctx = canvas.getContext('2d');
@@ -78,7 +78,7 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinC
     ctx.font = 'bold 16px sans-serif';
     ctx.shadowBlur = 0;
     ctx.fillText("GO!", center, center + 6);
-  };
+  }, [prizes]);
 
   useImperativeHandle(ref, () => ({
     startAnimation: (winningIndex, prizeName) => {
@@ -109,9 +109,9 @@ const Wheel = forwardRef(({ prizes, onSpinFinish, spinning, setSpinning, onSpinC
       };
       requestAnimationFrame(animate);
     }
-  }));
+  }), [draw, onSpinFinish, prizes.length, setSpinning]);
 
-  useEffect(() => { draw(angleRef.current); }, [prizes]);
+  useEffect(() => { draw(angleRef.current); }, [draw]);
 
   // 👇 NOVA LÓGICA DE CLIQUE E MOUSE 👇
   const getMousePos = (e) => {
