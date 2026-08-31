@@ -18,6 +18,7 @@ export default function App() {
 
   const [adminAuth, setAdminAuth] = useState('');
   const [result, setResult] = useState(null);
+  const [isFinished, setIsFinished] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -71,7 +72,7 @@ export default function App() {
       } else {
         alert('❌ Senha incorreta! Acesso negado.');
       }
-    } catch (e) {
+    } catch {
       alert('Erro ao verificar a senha com o servidor.');
     }
   };
@@ -88,7 +89,7 @@ export default function App() {
       if (!response.ok) throw new Error('Falha ao salvar');
       alert(`Sucesso! Banco atualizado para o evento: ${currentEvent}`);
       setIsSidebarOpen(false);
-    } catch (e) {
+    } catch {
       alert('Erro ao conectar com o banco.');
     } finally {
       setLoading(false);
@@ -108,7 +109,7 @@ export default function App() {
       if (!response.ok) throw new Error('Falha ao limpar');
       setPrizes([{ name: 'Prémio 1', quantity: 0 }, { name: 'Prémio 2', quantity: 0 }]);
       alert('Banco de dados limpo com sucesso!');
-    } catch (e) {
+    } catch {
       alert('Erro ao limpar banco.');
     } finally {
       setLoading(false);
@@ -157,14 +158,33 @@ export default function App() {
         p.name === data.prize ? { ...p, quantity: p.quantity - 1 } : p
       ));
 
-    } catch (e) {
+    } catch {
       setLoading(false);
       setSpinError('Erro de conexão com o servidor. Tente novamente.');
     }
   };
 
+  const handleFinish = () => {
+    setResult(null);
+    setIsFinished(true);
+  };
+
   // ✅ FIX #1: Renderização com 3 estados: carregando / sem inventário / roleta
   const renderMain = () => {
+    if (isFinished) {
+      return (
+        <div className="glass-card p-5 text-center shadow-lg completion-card">
+          <div className="completion-icon mb-4">
+            <i className="bi bi-check-circle-fill"></i>
+          </div>
+          <h1 className="fw-black text-uppercase mb-3">Participação concluída</h1>
+          <p className="text-white-50 fs-5 mb-0">
+            Obrigado por participar. Seu sorteio foi registrado com sucesso.
+          </p>
+        </div>
+      );
+    }
+
     if (isLoadingPrizes) {
       return (
         <div className="glass-card p-5 d-flex flex-column align-items-center justify-content-center" style={{ minHeight: '300px' }}>
@@ -256,7 +276,7 @@ export default function App() {
                 <h2 className="win-title mb-1">PARABÉNS!</h2>
                 <p className="win-subtitle mb-4 text-white-50">Acabaste de ganhar o prémio:</p>
                 <h1 className="win-prize-name display-4 fw-black mb-5 text-uppercase">{result}</h1>
-                <button className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn" onClick={() => setResult(null)}>
+                <button className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn" onClick={handleFinish}>
                   🎉 FECHAR
                 </button>
               </div>
@@ -271,6 +291,8 @@ export default function App() {
         body, html { margin: 0; padding: 0; overflow-x: hidden; background: #0f2027; }
         .app-wrapper { min-height: 100vh; width: 100vw; background: linear-gradient(135deg, #091217, #15252e, #1c323d); font-family: 'Inter', sans-serif; color: white; }
         .glass-card { background: rgba(255,255,255,0.02); border-radius: 40px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+        .completion-card { min-height: 320px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .completion-icon { color: #2BFF88; font-size: 4.5rem; line-height: 1; }
         .btn-spin { font-weight: 900; border-radius: 50px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
         .pulse { animation: pulse-animation 2s infinite; }
         @keyframes pulse-animation { 0% { box-shadow: 0 0 0 0px rgba(25, 135, 84, 0.4); } 100% { box-shadow: 0 0 0 20px rgba(25, 135, 84, 0); } }
