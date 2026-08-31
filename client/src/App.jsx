@@ -7,24 +7,26 @@ import 'bootstrap-icons/font/bootstrap-icons.css';
 export default function App() {
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3010';
 
-  // Captura o evento E o email pela URL (ex: ?evento=brasilia&email=user@coffito.gov.br)
   const queryParams = new URLSearchParams(window.location.search);
   const currentEvent = queryParams.get('evento') || 'geral';
-  
+  const initialEmail = queryParams.get('email') || '';
 
-  // ✅ FIX #1: Estado inicial vazio + flag de loading para evitar tela "Sem Inventário" prematura
   const [prizes, setPrizes] = useState([]);
   const [isLoadingPrizes, setIsLoadingPrizes] = useState(true);
-
   const [adminAuth, setAdminAuth] = useState('');
   const [result, setResult] = useState(null);
+  const [spinResult, setSpinResult] = useState(null);
+  const [completion, setCompletion] = useState(null);
+  const [participant, setParticipant] = useState(null);
+  const [participantEmail, setParticipantEmail] = useState(initialEmail);
+  const [participantError, setParticipantError] = useState('');
+  const [validationLoading, setValidationLoading] = useState(false);
   const [spinning, setSpinning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  
-  const wheelRef = useRef(null);
-  // ✅ FIX #3: Erro exibido na tela no lugar de alert()
   const [spinError, setSpinError] = useState('');
+
+  const wheelRef = useRef(null);
 
   useEffect(() => {
     const initializePage = async () => {
@@ -32,20 +34,14 @@ export default function App() {
       setSpinError('');
 
       try {
-        // 1. Carrega os prémios do evento
-        const r1 = await fetch(`${API_URL}/api/prizes?evento=${currentEvent}`);
-        if (r1.ok) {
-          const dbPrizes = await r1.json();
-          if (dbPrizes && dbPrizes.length > 0) {
-            setPrizes(dbPrizes);
-          }
+        const response = await fetch(`${API_URL}/api/prizes?evento=${encodeURIComponent(currentEvent)}`);
+        if (response.ok) {
+          const dbPrizes = await response.json();
+          setPrizes(Array.isArray(dbPrizes) ? dbPrizes : []);
         }
-
-        
       } catch (error) {
         console.error('Erro ao inicializar página:', error);
       } finally {
-        // Sempre libera o loading, independente de sucesso ou erro
         setIsLoadingPrizes(false);
       }
     };
@@ -55,8 +51,69 @@ export default function App() {
 
   const availablePrizes = prizes.filter(p => p.quantity > 0);
 
+  const normalizeEmail = value => value.trim().toLowerCase();
+
+  const readError = async (response, fallback) => {
+    try {
+      const data = await response.json();
+      return data.error || data.message || fallback;
+    } catch {
+      return fallback;
+    }
+  };
+
+  const handleValidateParticipant = async (event) => {
+    event.preventDefault();
+
+    const email = normalizeEmail(participantEmail);
+    setParticipantError('');
+    setSpinError('');
+    setCompletion(null);
+    setParticipant(null);
+
+    if (!email) {
+      setParticipantError('Informe o e-mail usado no Google Forms.');
+      return;
+    }
+
+    setValidationLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/participant/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ evento: currentEvent, email })
+      });
+
+      if (!response.ok) {
+        setParticipantError(await readError(response, 'Não foi possível validar o participante.'));
+        return;
+      }
+
+      const data = await response.json();
+      if (!data.eligible) {
+        setParticipantError(data.message || 'E-mail não encontrado para este evento.');
+        return;
+      }
+
+      setParticipant({ email, hasSpun: data.hasSpun });
+      setParticipantEmail(email);
+
+      if (data.hasSpun) {
+        setCompletion({
+          prize: data.prize,
+          timestamp: data.timestamp,
+          alreadySpun: true
+        });
+      }
+    } catch {
+      setParticipantError('Erro de conexão com o servidor. Tente novamente.');
+    } finally {
+      setValidationLoading(false);
+    }
+  };
+
   const handleOpenSettings = async () => {
-    const pass = window.prompt(`🔒 Acesso Restrito [Evento: ${currentEvent.toUpperCase()}]\nDigite a senha de administrador:`);
+    const pass = window.prompt(`Acesso Restrito [Evento: ${currentEvent.toUpperCase()}]\nDigite a senha de administrador:`);
     if (!pass) return;
 
     try {
@@ -69,9 +126,9 @@ export default function App() {
         setAdminAuth(pass);
         setIsSidebarOpen(true);
       } else {
-        alert('❌ Senha incorreta! Acesso negado.');
+        alert('Senha incorreta! Acesso negado.');
       }
-    } catch (e) {
+    } catch {
       alert('Erro ao verificar a senha com o servidor.');
     }
   };
@@ -88,7 +145,7 @@ export default function App() {
       if (!response.ok) throw new Error('Falha ao salvar');
       alert(`Sucesso! Banco atualizado para o evento: ${currentEvent}`);
       setIsSidebarOpen(false);
-    } catch (e) {
+    } catch {
       alert('Erro ao conectar com o banco.');
     } finally {
       setLoading(false);
@@ -96,19 +153,23 @@ export default function App() {
   };
 
   const handleClearDB = async () => {
-    if (!window.confirm(`Aviso: Isto vai apagar TODOS os brindes do evento "${currentEvent}". Confirmar?`)) return;
+    if (!window.confirm(`Aviso: Isto vai apagar TODOS os dados do evento "${currentEvent}". Confirmar?`)) return;
 
     setLoading(true);
     try {
-      const response = await fetch(`${API_URL}/api/prizes/clear?evento=${currentEvent}`, {
+      const response = await fetch(`${API_URL}/api/prizes/clear?evento=${encodeURIComponent(currentEvent)}`, {
         method: 'DELETE',
         headers: { 'X-Admin-Password': adminAuth }
       });
       if (response.status === 401) throw new Error('Senha incorreta');
       if (!response.ok) throw new Error('Falha ao limpar');
-      setPrizes([{ name: 'Prémio 1', quantity: 0 }, { name: 'Prémio 2', quantity: 0 }]);
+      setPrizes([{ name: 'Prêmio 1', quantity: 0 }, { name: 'Prêmio 2', quantity: 0 }]);
+      setParticipant(null);
+      setCompletion(null);
+      setResult(null);
+      setSpinResult(null);
       alert('Banco de dados limpo com sucesso!');
-    } catch (e) {
+    } catch {
       alert('Erro ao limpar banco.');
     } finally {
       setLoading(false);
@@ -117,8 +178,12 @@ export default function App() {
 
   const handleSpin = async () => {
     if (spinning || loading) return;
-    setSpinError(''); // limpa erro anterior
+    setSpinError('');
 
+    if (!participant?.email) {
+      setParticipantError('Valide seu e-mail antes de girar a roleta.');
+      return;
+    }
 
     if (availablePrizes.length < 2) {
       setIsSidebarOpen(true);
@@ -127,49 +192,145 @@ export default function App() {
 
     setLoading(true);
     setResult(null);
+    setSpinResult(null);
 
     try {
       const response = await fetch(`${API_URL}/api/spin`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ evento: currentEvent })
+        body: JSON.stringify({ evento: currentEvent, email: participant.email })
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        // ✅ FIX #3: Erro exibido na tela, não em alert()
+        const errorData = await response.json().catch(() => ({}));
+
+        if (response.status === 409) {
+          setParticipant(previous => previous ? { ...previous, hasSpun: true } : previous);
+          setCompletion({
+            prize: errorData.prize || null,
+            timestamp: errorData.timestamp || null,
+            alreadySpun: true
+          });
+          return;
+        }
+
         setSpinError(errorData.error || 'Erro ao processar sorteio.');
-        setLoading(false);
         return;
       }
 
       const data = await response.json();
-      setLoading(false);
+      setSpinResult(data);
       setSpinning(true);
-      
 
       const winningIndex = availablePrizes.findIndex(p => p.name === data.prize);
-      if (winningIndex !== -1) {
+      if (winningIndex !== -1 && wheelRef.current) {
         wheelRef.current.startAnimation(winningIndex, data.prize);
+      } else {
+        setSpinning(false);
+        setResult(data.prize);
       }
 
-      setPrizes(prizes.map(p =>
-        p.name === data.prize ? { ...p, quantity: p.quantity - 1 } : p
+      setPrizes(currentPrizes => currentPrizes.map(p =>
+        p.name === data.prize ? { ...p, quantity: Math.max(0, p.quantity - 1) } : p
       ));
-
-    } catch (e) {
-      setLoading(false);
+    } catch {
       setSpinError('Erro de conexão com o servidor. Tente novamente.');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ✅ FIX #1: Renderização com 3 estados: carregando / sem inventário / roleta
+  const handleFinish = () => {
+    setCompletion({
+      prize: spinResult?.prize || result,
+      timestamp: spinResult?.timestamp || null,
+      alreadySpun: false
+    });
+    setParticipant(previous => previous ? { ...previous, hasSpun: true } : previous);
+    setResult(null);
+  };
+
+  const renderCompletion = () => (
+    <div className="glass-card p-5 text-center shadow-lg">
+      <div className="completion-icon mb-3">
+        <i className="bi bi-check-circle-fill"></i>
+      </div>
+      <h2 className="fw-black text-uppercase mb-3">Participação concluída</h2>
+      {completion?.prize ? (
+        <>
+          <p className="text-white-50 mb-2">
+            {completion.alreadySpun ? 'Este e-mail já participou e ganhou:' : 'Seu prêmio foi registrado:'}
+          </p>
+          <h1 className="win-prize-name display-5 fw-black text-uppercase mb-4">{completion.prize}</h1>
+        </>
+      ) : (
+        <p className="text-white-50 fs-5 mb-4">Este e-mail já participou do sorteio deste evento.</p>
+      )}
+      <div className="participant-chip mx-auto">
+        <i className="bi bi-envelope-check me-2"></i>
+        {participant?.email || normalizeEmail(participantEmail)}
+      </div>
+      <p className="text-white-50 small mt-4 mb-0">
+        Guarde esta tela para conferir seu prêmio com a equipe do evento.
+      </p>
+    </div>
+  );
+
+  const renderParticipantGate = () => (
+    <div className="glass-card p-5 text-center shadow-lg">
+      <h1 className="display-6 fw-black text-uppercase mb-3">Validar participação</h1>
+      <p className="text-white-50 mb-4">
+        Informe o e-mail usado no Google Forms para liberar um único giro neste evento.
+      </p>
+
+      <form onSubmit={handleValidateParticipant} className="mx-auto" style={{ maxWidth: '460px' }}>
+        <div className="input-group input-group-lg mb-3">
+          <span className="input-group-text bg-dark text-white border-secondary">
+            <i className="bi bi-envelope"></i>
+          </span>
+          <input
+            type="email"
+            className="form-control bg-dark text-white border-secondary"
+            value={participantEmail}
+            placeholder="seu.email@empresa.com"
+            onChange={(event) => setParticipantEmail(event.target.value)}
+            disabled={validationLoading}
+            autoComplete="email"
+          />
+        </div>
+
+        {participantError && (
+          <div className="alert alert-danger py-2 text-center" role="alert">
+            <i className="bi bi-exclamation-circle-fill me-2"></i>
+            {participantError}
+          </div>
+        )}
+
+        <button
+          type="submit"
+          className="btn btn-warning btn-lg w-100 fw-bold rounded-pill shadow-lg"
+          disabled={validationLoading}
+        >
+          {validationLoading ? 'VALIDANDO...' : <><i className="bi bi-shield-check me-2"></i>VALIDAR E-MAIL</>}
+        </button>
+      </form>
+    </div>
+  );
+
   const renderMain = () => {
+    if (completion) {
+      return renderCompletion();
+    }
+
+    if (!participant) {
+      return renderParticipantGate();
+    }
+
     if (isLoadingPrizes) {
       return (
         <div className="glass-card p-5 d-flex flex-column align-items-center justify-content-center" style={{ minHeight: '300px' }}>
           <div className="spinner-border text-warning mb-3" role="status" style={{ width: '3rem', height: '3rem' }}></div>
-          <p className="text-white-50 fs-5 mt-2">A carregar roleta...</p>
+          <p className="text-white-50 fs-5 mt-2">Carregando roleta...</p>
         </div>
       );
     }
@@ -178,19 +339,29 @@ export default function App() {
       return (
         <div className="glass-card p-5 text-center text-white-50 border-danger">
           <h1 className="display-1 opacity-25 mb-4"><i className="bi bi-exclamation-triangle-fill"></i></h1>
-          <h3>Sem Inventário Suficiente</h3>
-          <p>Configura pelo menos 2 brindes no evento <b>{currentEvent.toUpperCase()}</b> para girar.</p>
-          <button className="btn btn-primary mt-3" onClick={() => setIsSidebarOpen(true)}>Abrir Configurações</button>
+          <h3>Sem inventário suficiente</h3>
+          <p>Configure pelo menos 2 brindes no evento <b>{currentEvent.toUpperCase()}</b> para girar.</p>
+          <button className="btn btn-primary mt-3" onClick={() => setIsSidebarOpen(true)}>Abrir configurações</button>
         </div>
       );
     }
 
     return (
       <div className="glass-card p-5 d-flex flex-column align-items-center justify-content-center shadow-lg position-relative">
-        <Wheel ref={wheelRef} prizes={availablePrizes} spinning={spinning} setSpinning={setSpinning} onSpinFinish={setResult} onSpinClick={handleSpin} />
-        
+        <div className="participant-chip mb-2">
+          <i className="bi bi-person-check me-2"></i>
+          {participant.email}
+        </div>
 
-        {/* ✅ FIX #3: Erro exibido inline, sem alert() */}
+        <Wheel
+          ref={wheelRef}
+          prizes={availablePrizes}
+          spinning={spinning}
+          setSpinning={setSpinning}
+          onSpinFinish={setResult}
+          onSpinClick={handleSpin}
+        />
+
         {spinError && (
           <div className="alert alert-danger mt-3 w-100 py-2 text-center" role="alert">
             <i className="bi bi-exclamation-circle-fill me-2"></i>
@@ -205,9 +376,9 @@ export default function App() {
             disabled={spinning || loading}
           >
             {loading
-              ? 'A PROCESSAR...'
+              ? 'PROCESSANDO...'
               : spinning
-              ? 'A GIRAR...'
+              ? 'GIRANDO...'
               : <><i className="bi bi-bullseye me-2"></i>GIRAR ROLETA</>
             }
           </button>
@@ -236,13 +407,13 @@ export default function App() {
         <div className="text-center w-100" style={{ maxWidth: '800px' }}>
           <div className="mb-4">
             <span className="badge bg-dark border border-secondary px-3 py-2 text-white-50">
-              {isLoadingPrizes ? '...' : availablePrizes.length} Itens em Stock Disponível
+              {isLoadingPrizes ? '...' : availablePrizes.length} Itens em estoque disponível
             </span>
           </div>
 
           {renderMain()}
 
-          {!result && !isLoadingPrizes && availablePrizes.length >= 2 && !spinError && (
+          {!result && participant && !completion && !isLoadingPrizes && availablePrizes.length >= 2 && !spinError && (
             <div className="result-box mt-4 mx-auto" style={{ maxWidth: '600px' }}>
               <h2 className="mb-0 fw-black" style={{ color: 'rgba(255,255,255,0.3)' }}>Pronto para sortear...</h2>
             </div>
@@ -254,10 +425,10 @@ export default function App() {
                 <div className="glow-effect"></div>
                 <div className="win-icon-wrapper mb-3"><span className="win-icon">🎁</span></div>
                 <h2 className="win-title mb-1">PARABÉNS!</h2>
-                <p className="win-subtitle mb-4 text-white-50">Acabaste de ganhar o prémio:</p>
+                <p className="win-subtitle mb-4 text-white-50">Você acabou de ganhar o prêmio:</p>
                 <h1 className="win-prize-name display-4 fw-black mb-5 text-uppercase">{result}</h1>
-                <button className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn" onClick={() => setResult(null)}>
-                  🎉 CONTINUAR
+                <button className="btn btn-warning btn-lg px-5 py-3 fw-bold rounded-pill shadow-lg win-btn" onClick={handleFinish}>
+                  FINALIZAR
                 </button>
               </div>
             </div>
@@ -271,6 +442,8 @@ export default function App() {
         body, html { margin: 0; padding: 0; overflow-x: hidden; background: #0f2027; }
         .app-wrapper { min-height: 100vh; width: 100vw; background: linear-gradient(135deg, #091217, #15252e, #1c323d); font-family: 'Inter', sans-serif; color: white; }
         .glass-card { background: rgba(255,255,255,0.02); border-radius: 40px; border: 1px solid rgba(255,255,255,0.05); backdrop-filter: blur(10px); }
+        .participant-chip { width: fit-content; max-width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.12); border-radius: 999px; color: rgba(255,255,255,0.75); padding: 8px 16px; font-size: 0.9rem; overflow-wrap: anywhere; }
+        .completion-icon { color: #2BFF88; font-size: 4rem; line-height: 1; }
         .btn-spin { font-weight: 900; border-radius: 50px; text-transform: uppercase; letter-spacing: 2px; transition: all 0.3s ease; box-shadow: 0 10px 20px rgba(0,0,0,0.3); }
         .pulse { animation: pulse-animation 2s infinite; }
         @keyframes pulse-animation { 0% { box-shadow: 0 0 0 0px rgba(25, 135, 84, 0.4); } 100% { box-shadow: 0 0 0 20px rgba(25, 135, 84, 0); } }
@@ -281,7 +454,7 @@ export default function App() {
         .glow-effect { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 200px; height: 200px; background: radial-gradient(circle, rgba(255,210,0,0.15) 0%, rgba(0,0,0,0) 70%); z-index: 0; pointer-events: none; }
         .win-icon { font-size: 4rem; position: relative; z-index: 1; animation: floatIcon 2s ease-in-out infinite; display: inline-block; }
         .win-title { color: #FFD200; font-weight: 900; letter-spacing: 2px; position: relative; z-index: 1; }
-        .win-prize-name { color: white; text-shadow: 0 0 20px rgba(255,255,255,0.4); position: relative; z-index: 1; }
+        .win-prize-name { color: white; text-shadow: 0 0 20px rgba(255,255,255,0.4); position: relative; z-index: 1; overflow-wrap: anywhere; }
         .win-btn { position: relative; z-index: 1; background: linear-gradient(to right, #F7971E, #FFD200); border: none; color: #000; text-transform: uppercase; letter-spacing: 1px; transition: transform 0.2s ease, box-shadow 0.2s ease; }
         .win-btn:hover { transform: translateY(-3px) scale(1.05); box-shadow: 0 10px 25px rgba(255, 210, 0, 0.4) !important; }
         @keyframes fadeInOverlay { from { opacity: 0; } to { opacity: 1; } }

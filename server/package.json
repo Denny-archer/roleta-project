@@ -9,12 +9,14 @@
     "dev": "nodemon index.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "cors": "^2.8.6",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
     "dotenv": "^17.3.1",
-    "express": "^4.22.1",
+    "fastify": "^5.12.1",
     "pg": "^8.20.0"
   },
   "devDependencies": {
