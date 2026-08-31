@@ -13,12 +13,6 @@ const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
 });
 
-pool.on('connect', client => {
-    client.query('SET search_path TO roleta, public').catch(err => {
-        console.error('[ERRO search_path]:', err.message);
-    });
-});
-
 const app = Fastify({
     logger: true,
 });
